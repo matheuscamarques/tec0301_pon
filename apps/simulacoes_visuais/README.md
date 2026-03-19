@@ -1,6 +1,6 @@
 # SimulacoesVisuais
 
-Aplicação Phoenix do Gêmeo Digital Smart Brewery (simulação, telemetria, OEE, regras PON). Para alinhamento ao **artigo 12** (Modelo de Atores, OTP, ISO 23247), ver `docs/artigos/12_modelo_atores_otp.md` e `docs/artigos/12_mapeamento_iso_23247.md`.
+Aplicação Phoenix do Gêmeo Digital Smart Brewery (simulação, telemetria, OEE, regras PON). O alinhamento ao **artigo 12** (Modelo de Atores, OTP, ISO 23247) está descrito na documentação interna do projeto (não versionada neste repositório).
 
 ## Início rápido
 

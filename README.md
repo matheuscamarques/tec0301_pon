@@ -7,13 +7,13 @@ Prova de conceito do **Paradigma Orientado a Notificações (PON)** em Elixir/BE
 
 ### Documentação do projeto
 
+A documentação de design (artigos de arquitetura, passo a passo do motor PON, Estufa, DSL, Hot Swap) e os recursos bibliográficos (teses, dissertações, textos sobre PON) são mantidos em repositório sigiloso e não estão versionados aqui.
+
 | Onde | O que |
 |------|--------|
-| **`docs/artigos/`** | Artigos que descrevem a arquitetura e o passo a passo da implementação (motor PON, Estufa, DSL, Hot Swap). **Use como referência para entender e documentar o código.** |
-| **`docs/recursos/`** | Recursos bibliográficos (teses, dissertações, textos sobre PON). Ver `docs/recursos/README.md` para o índice. **Servem de fundamentação teórica para os `@moduledoc` e o artigo.** |
 | **Código** | `@moduledoc` e `@doc` nos módulos; gere a doc com `mix docs`. |
 
-**Resumo:** Os artigos em `docs/artigos/` são a “documentação de design” do código; os recursos em `docs/recursos/` embasam a teoria. Para documentar o código, use os artigos como guia e cite conceitos (ou `docs/recursos/`) quando for explicar o PON no ExDoc.
+Use o código e a documentação gerada com `mix docs` como referência principal para entender e estender o PON.
 ## Uma Abordagem Funcional e Dinâmica para o Paradigma Orientado a Notificações: Metaprogramação, Arquitetura Hexagonal e Troca Quente de Código em Elixir
 
 ### 1. Problema e Justificativa
