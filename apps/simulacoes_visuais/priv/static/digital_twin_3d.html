@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <title>Digital Twin 3D - Smart Brewery</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0f172a; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+
+        #hud {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: flex; flex-direction: column;
+            justify-content: space-between; padding: 1.5rem; box-sizing: border-box;
+        }
+        .panel {
+            background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(8px);
+            border: 1px solid rgba(71, 85, 105, 0.8); border-radius: 12px;
+            padding: 1rem; pointer-events: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            transition: all 0.3s ease;
+        }
+        .data-row { display: flex; justify-content: space-between; font-family: monospace; font-size: 0.85rem; margin-top: 0.5rem; color: #cbd5e1; border-bottom: 1px solid #334155; padding-bottom: 0.2rem;}
+        .val { color: #10b981; font-weight: bold; }
+        .val-warn { color: #f59e0b; font-weight: bold; }
+        .val-alert { color: #ef4444; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="hud">
+        <div class="flex justify-between items-start">
+            <div class="panel max-w-sm">
+                <h1 class="text-2xl font-bold text-white flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
+                    Digital Twin 3D
+                </h1>
+                <p class="text-slate-400 text-xs mt-1">Clique num equipamento para ler a Base de Fatos.</p>
+            </div>
+
+            <div class="panel">
+                <h2 class="text-white font-bold text-sm mb-2 border-b border-slate-600 pb-1">ESTADOS GERAIS (LIVE)</h2>
+                <div class="data-row"><span>Carga (Grid Load):</span> <span class="val-warn">73 kW</span></div>
+                <div class="data-row"><span>Custo Grid:</span> <span class="val-warn">161 ¢</span></div>
+                <div class="data-row"><span>Velocidade Envase:</span> <span class="val-alert">0 bpm (JAM)</span></div>
+                <div class="data-row border-0"><span>AMR Status:</span> <span class="val-warn">Recalculando</span></div>
+            </div>
+        </div>
+
+        <div class="flex justify-between items-end">
+            <div class="panel flex gap-4 text-xs font-mono text-slate-300">
+                <div class="flex items-center gap-2"><span class="w-3 h-3 bg-amber-600 rounded"></span> Brassagem</div>
+                <div class="flex items-center gap-2"><span class="w-3 h-3 bg-slate-400 rounded"></span> Frio/Envase</div>
+                <div class="flex items-center gap-2"><span class="w-3 h-3 bg-blue-500 rounded"></span> Logística</div>
+                <div class="flex items-center gap-2"><span class="w-3 h-3 bg-green-500 rounded"></span> Limpeza/Energia</div>
+            </div>
+
+            <!-- Painel de Detalhes Dinâmico -->
+            <div id="details-panel" class="panel w-80" style="opacity: 0.5;">
+                <h2 class="text-white font-bold text-sm mb-2 border-b border-slate-600 pb-1 flex justify-between">
+                    <span id="eq-name">Selecione um Equipamento</span>
+                    <span id="eq-status" class="text-xs text-slate-400">---</span>
+                </h2>
+                <div id="eq-data-container">
+                    <div class="text-slate-400 text-xs italic py-4 text-center">Nenhum equipamento selecionado. Passe o rato e clique num tanque ou máquina.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script>
+        window.onload = function () {
+            // =======================================================
+            // 1. CONFIGURAÇÃO BÁSICA DO THREE.JS
+            // =======================================================
+            const container = document.getElementById('canvas-container');
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f172a);
+            scene.fog = new THREE.FogExp2(0x0f172a, 0.005);
+
+            const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 1000);
+            camera.position.set(70, 60, 90);
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 - 0.05;
+            controls.target.set(0, 10, 0);
+
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+            let hoveredObject = null;
+            let selectedObject = null;
+            const interactables = [];
+
+            // Iluminação
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
+            dirLight.position.set(50, 100, 50);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            scene.add(dirLight);
+            const blueLight = new THREE.PointLight(0x3b82f6, 1, 150);
+            blueLight.position.set(-30, 30, 20);
+            scene.add(blueLight);
+            const orangeLight = new THREE.PointLight(0xf97316, 0.8, 150);
+            orangeLight.position.set(30, 20, -20);
+            scene.add(orangeLight);
+
+            // Materiais
+            const matFloor = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8, metalness: 0.2 });
+            const matSteel = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.3, metalness: 0.8 });
+            const matDarkSteel = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.5, metalness: 0.7 });
+            const matCopper = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.4, metalness: 0.6 });
+            const matAMR = new THREE.MeshStandardMaterial({ color: 0x3b82f6 });
+            const matTurbine = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.2, metalness: 0.1 });
+            const matGlassAmber = new THREE.MeshStandardMaterial({ color: 0x92400e, transparent: true, opacity: 0.8, roughness: 0.1, metalness: 0.1 });
+            const matPipeHot = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.5, metalness: 0.3 });
+            const matPipeCold = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.5, metalness: 0.3 });
+            const matPipeCIP = new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.5, metalness: 0.3 });
+
+            function cloneMat(mat) { return mat.clone(); }
+
+            // Chão e Grelha
+            const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), matFloor);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+            const gridHelper = new THREE.GridHelper(200, 40, 0x334155, 0x334155);
+            gridHelper.position.y = 0.1;
+            scene.add(gridHelper);
+
+            const factoryGroup = new THREE.Group();
+            scene.add(factoryGroup);
+
+            // =======================================================
+            // 2. CONSTRUÇÃO DETALHADA DOS EQUIPAMENTOS (COM FBEs)
+            // =======================================================
+
+            // --- FBE_01: Moinho de Malte ---
+            const millGroup = new THREE.Group();
+            millGroup.position.set(-30, 0, -20);
+            const mMat = cloneMat(matDarkSteel);
+            const millBody = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 4), mMat);
+            millBody.position.y = 4;
+            millBody.castShadow = true;
+            millBody.userData = { id: "fbe01", name: "01. Moinho_Malte", data: { "motor_rpm": "517", "vibration_level": "85", "hopper_level": "46", "motor_temp": "79", "feed_valve_state": "open" }, originalHex: mMat.emissive.getHex() };
+            interactables.push(millBody);
+            millGroup.add(millBody);
+            const millHopper = new THREE.Mesh(new THREE.CylinderGeometry(3.5, 1.5, 4, 4), matSteel);
+            millHopper.position.y = 8;
+            millHopper.rotation.y = Math.PI / 4;
+            millHopper.castShadow = true;
+            const millMotor = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 2.5, 16), new THREE.MeshStandardMaterial({ color: 0x3b82f6 }));
+            millMotor.position.set(2.5, 4, 0);
+            millMotor.rotation.z = Math.PI / 2;
+            millMotor.castShadow = true;
+            [[1.8, 1, 1.8], [-1.8, 1, 1.8], [1.8, 1, -1.8], [-1.8, 1, -1.8]].forEach(pos => {
+                const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2, 8), matDarkSteel);
+                leg.position.set(...pos);
+                leg.castShadow = true;
+                millGroup.add(leg);
+            });
+            millGroup.add(millHopper, millMotor);
+            factoryGroup.add(millGroup);
+
+            // --- FBE_02: Tanque Mostura ---
+            const mosturaGroup = new THREE.Group();
+            mosturaGroup.position.set(-15, 0, -20);
+            const moMat = cloneMat(matCopper);
+            const moBody = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 10, 32), moMat);
+            moBody.position.y = 7;
+            moBody.castShadow = true;
+            moBody.userData = { id: "fbe02", name: "02. Tanque_Mostura", data: { "mash_temp": "62", "water_flow_rate": "42", "agitator_status": "on", "ph_level": "53", "viscosity": "19", "liquid_level": "32" }, originalHex: moMat.emissive.getHex() };
+            interactables.push(moBody);
+            mosturaGroup.add(moBody);
+            const moDome = new THREE.Mesh(new THREE.SphereGeometry(4, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), moMat);
+            moDome.position.y = 12;
+            moDome.castShadow = true;
+            const agitatorMotor = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 1.5, 16), matDarkSteel);
+            agitatorMotor.position.set(0, 16, 0);
+            agitatorMotor.castShadow = true;
+            const agitatorGearbox = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.8, 1.5), new THREE.MeshStandardMaterial({ color: 0x3b82f6 }));
+            agitatorGearbox.position.set(0, 17.2, 0);
+            agitatorGearbox.castShadow = true;
+            const gristPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 3.5, 16), matSteel);
+            gristPipe.position.set(-2.2, 15.5, 0);
+            gristPipe.rotation.z = Math.PI / 6;
+            gristPipe.castShadow = true;
+            mosturaGroup.add(moDome, agitatorMotor, agitatorGearbox, gristPipe);
+            factoryGroup.add(mosturaGroup);
+
+            // --- FBE_03: Tina Filtro ---
+            const filtroGroup = new THREE.Group();
+            filtroGroup.position.set(0, 0, -20);
+            const fMat = cloneMat(matCopper);
+            const fBody = new THREE.Mesh(new THREE.CylinderGeometry(5.5, 5.5, 6, 32), fMat);
+            fBody.position.y = 6;
+            fBody.castShadow = true;
+            fBody.userData = { id: "fbe03", name: "03. Tina_Filtro", data: { "diff_pressure": "59", "wort_clarity": "22", "sparge_water_temp": "73", "rake_height": "64", "pump_speed": "67" }, originalHex: fMat.emissive.getHex() };
+            interactables.push(fBody);
+            filtroGroup.add(fBody);
+            const fDome = new THREE.Mesh(new THREE.SphereGeometry(5.5, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), fMat);
+            fDome.position.y = 9;
+            fDome.castShadow = true;
+            const fMotorBase = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 1.5, 16), matDarkSteel);
+            fMotorBase.position.y = 15.25;
+            fMotorBase.castShadow = true;
+            const fMotorBody = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2, 2), new THREE.MeshStandardMaterial({ color: 0x3b82f6 }));
+            fMotorBody.position.y = 17;
+            fMotorBody.castShadow = true;
+            const grainDoor = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.8, 0.6), matSteel);
+            grainDoor.position.set(0, 4.5, 5.35);
+            grainDoor.castShadow = true;
+            [[3.8, 1.5, 3.8], [-3.8, 1.5, 3.8], [3.8, 1.5, -3.8], [-3.8, 1.5, -3.8]].forEach(pos => {
+                const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 3, 16), matDarkSteel);
+                leg.position.set(...pos);
+                leg.castShadow = true;
+                filtroGroup.add(leg);
+            });
+            filtroGroup.add(fDome, fMotorBase, fMotorBody, grainDoor);
+            factoryGroup.add(filtroGroup);
+
+            // --- FBE_04: Caldeira Fervura ---
+            const boilGroup = new THREE.Group();
+            boilGroup.position.set(15, 0, -20);
+            const boMat = cloneMat(matCopper);
+            const boBody = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 10, 32), boMat);
+            boBody.position.y = 7;
+            boBody.castShadow = true;
+            boBody.userData = { id: "fbe04", name: "04. Caldeira_Fervura", data: { "boil_temp": "79", "steam_pressure": "4", "evaporation_rate": "9", "hop_doser_state": "idle", "foam_level": "12" }, originalHex: boMat.emissive.getHex() };
+            interactables.push(boBody);
+            boilGroup.add(boBody);
+            const boDome = new THREE.Mesh(new THREE.SphereGeometry(4, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), boMat);
+            boDome.position.y = 12;
+            boDome.castShadow = true;
+            const burnerBase = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 4.2, 2.5, 32), new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 }));
+            burnerBase.position.y = 3.25;
+            burnerBase.castShadow = true;
+            const chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 6, 16), matSteel);
+            chimney.position.set(0, 16, 0);
+            chimney.castShadow = true;
+            const hopDoser = new THREE.Mesh(new THREE.ConeGeometry(0.8, 2, 16), matSteel);
+            hopDoser.rotation.x = Math.PI;
+            hopDoser.position.set(2.8, 14, 2);
+            hopDoser.castShadow = true;
+            boilGroup.add(boDome, burnerBase, chimney, hopDoser);
+            factoryGroup.add(boilGroup);
+
+            // Partículas de Vapor para Caldeira
+            const steamParticles = new THREE.Group();
+            for (let i = 0; i < 30; i++) {
+                const p = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }));
+                p.position.set(15 + (Math.random() - 0.5) * 1.5, 19 + Math.random() * 5, -20 + (Math.random() - 0.5) * 1.5);
+                p.userData = { velocity: Math.random() * 0.05 + 0.03, life: Math.random(), xDrift: (Math.random() - 0.5) * 0.03 };
+                steamParticles.add(p);
+            }
+            factoryGroup.add(steamParticles);
+
+            // --- FBE_05: Trocador Calor ---
+            const heGroup = new THREE.Group();
+            heGroup.position.set(25, 2.5, -10);
+            const heMat = cloneMat(matSteel);
+            const heBase = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 2.5), heMat);
+            heBase.castShadow = true;
+            heBase.userData = { id: "fbe05", name: "05. Trocador_Calor", data: { "wort_in_temp": "11", "wort_out_temp": "11", "glycol_valve_pos": "40", "water_pressure": "3" }, originalHex: heMat.emissive.getHex() };
+            interactables.push(heBase);
+            heGroup.add(heBase);
+            for (let i = 0; i < 8; i++) {
+                const plate = new THREE.Mesh(new THREE.BoxGeometry(0.2, 4.5, 2.8), matDarkSteel);
+                plate.position.set(i * 0.5 - 1.75, 0, 0);
+                heGroup.add(plate);
+            }
+            factoryGroup.add(heGroup);
+
+            // --- FBE_06: Fermentador A (Cónico) ---
+            const fermAGroup = new THREE.Group();
+            fermAGroup.position.set(15, 0, 10);
+            const faMat = cloneMat(matSteel);
+            const faBody = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 6, 32), faMat);
+            faBody.position.y = 11;
+            faBody.castShadow = true;
+            faBody.userData = { id: "fbe06", name: "06. Fermentador_A", data: { "internal_temp": "22", "pressure": "0", "gravity_brix": "13", "glycol_jacket_st": "off", "co2_exhaust_flow": "26", "ferm_phase": "growth" }, originalHex: faMat.emissive.getHex() };
+            interactables.push(faBody);
+            fermAGroup.add(faBody);
+            const faCone = new THREE.Mesh(new THREE.ConeGeometry(4, 6, 32), faMat);
+            faCone.rotation.x = Math.PI;
+            faCone.position.y = 5;
+            faCone.castShadow = true;
+            const faTop = new THREE.Mesh(new THREE.SphereGeometry(4, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), faMat);
+            faTop.position.y = 14;
+            faTop.castShadow = true;
+            const pipeADown = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 10, 8), matDarkSteel);
+            pipeADown.position.set(4.2, 9, 0);
+            [[2.6, 3, 2.6], [-2.6, 3, 2.6], [2.6, 3, -2.6], [-2.6, 3, -2.6]].forEach(pos => {
+                const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 6, 16), matDarkSteel);
+                leg.position.set(...pos);
+                fermAGroup.add(leg);
+            });
+            fermAGroup.add(faCone, faTop, pipeADown);
+            factoryGroup.add(fermAGroup);
+
+            // --- FBE_07: Fermentador B (Brite Tank) ---
+            const fermBGroup = new THREE.Group();
+            fermBGroup.position.set(0, 0, 10);
+            const fbMat = cloneMat(matSteel);
+            const fbBody = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 10, 32), fbMat);
+            fbBody.position.y = 8;
+            fbBody.castShadow = true;
+            fbBody.userData = { id: "fbe07", name: "07. Fermentador_B", data: { "internal_temp": "21", "pressure": "0", "gravity_brix": "16", "glycol_jacket_st": "off", "co2_exhaust_flow": "45", "ferm_phase": "growth" }, originalHex: fbMat.emissive.getHex() };
+            interactables.push(fbBody);
+            fermBGroup.add(fbBody);
+            const fbBottom = new THREE.Mesh(new THREE.SphereGeometry(4, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), fbMat);
+            fbBottom.position.y = 3;
+            fbBottom.castShadow = true;
+            const fbTop = new THREE.Mesh(new THREE.SphereGeometry(4, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), fbMat);
+            fbTop.position.y = 13;
+            fbTop.castShadow = true;
+            const jacket1 = new THREE.Mesh(new THREE.CylinderGeometry(4.05, 4.05, 3, 32), new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.6 }));
+            jacket1.position.y = 6.5;
+            const jacket2 = new THREE.Mesh(new THREE.CylinderGeometry(4.05, 4.05, 3, 32), new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.6 }));
+            jacket2.position.y = 10.5;
+            const tubeGlass = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 7.5, 8), new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.3 }));
+            tubeGlass.position.set(4.0, 8, 1.7);
+            const tubeLiquid = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 6, 8), new THREE.MeshStandardMaterial({ color: 0xfbbf24 }));
+            tubeLiquid.position.set(4.0, 7.25, 1.7);
+            [[2.8, 1.5, 2.8], [-2.8, 1.5, 2.8], [2.8, 1.5, -2.8], [-2.8, 1.5, -2.8]].forEach(pos => {
+                const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 3, 16), matDarkSteel);
+                leg.position.set(...pos);
+                fermBGroup.add(leg);
+            });
+            fermBGroup.add(fbBottom, fbTop, jacket1, jacket2, tubeGlass, tubeLiquid);
+            factoryGroup.add(fermBGroup);
+
+            // --- FBE_08: Linha Envase ---
+            const envaseGroup = new THREE.Group();
+            envaseGroup.position.set(-10, 0, 25);
+            const envaseMat = cloneMat(matDarkSteel);
+            const envaseBase = new THREE.Mesh(new THREE.BoxGeometry(20, 2, 4), envaseMat);
+            envaseBase.position.y = 3;
+            envaseBase.castShadow = true;
+            envaseBase.userData = { id: "fbe08", name: "08. Linha_Envase", data: { "ir_bottle_detect": "false", "conveyor_speed": "0", "fill_head_status": "filling", "liquid_lvl_detect": "ok", "capper_jam_sens": "true", "stop_sensor": "true" }, originalHex: envaseMat.emissive.getHex() };
+            interactables.push(envaseBase);
+            envaseGroup.add(envaseBase);
+            const filler = new THREE.Mesh(new THREE.BoxGeometry(3, 4, 4), matSteel);
+            filler.position.set(-4, 6, 0);
+            filler.castShadow = true;
+            const capper = new THREE.Mesh(new THREE.BoxGeometry(3, 4, 4), matSteel);
+            capper.position.set(4, 6, 0);
+            capper.castShadow = true;
+            envaseGroup.add(filler, capper);
+            const bottles = [];
+            for (let i = 0; i < 6; i++) {
+                const b = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.5, 16), matGlassAmber);
+                b.position.set(-8 + i * 3, 4.75, 0);
+                b.castShadow = true;
+                bottles.push(b);
+                envaseGroup.add(b);
+            }
+            factoryGroup.add(envaseGroup);
+
+            // --- FBE_09: Sistema CIP ---
+            const cipGroup = new THREE.Group();
+            cipGroup.position.set(-30, 0, 10);
+            const cipMat = cloneMat(matDarkSteel);
+            const cipBase = new THREE.Mesh(new THREE.BoxGeometry(10, 0.5, 4), cipMat);
+            cipBase.position.y = 0.25;
+            cipBase.castShadow = true;
+            cipBase.userData = { id: "fbe09", name: "09. Sistema_CIP", data: { "caustic_tank_lvl": "39", "acid_tank_lvl": "17", "return_conduct": "3", "cip_pump_state": "on", "flow_velocity": "3" }, originalHex: cipMat.emissive.getHex() };
+            interactables.push(cipBase);
+            cipGroup.add(cipBase);
+            const tWater = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 5, 16), matSteel);
+            tWater.position.set(-3, 3, 0);
+            const tCaustic = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 5, 16), new THREE.MeshStandardMaterial({ color: 0xef4444 }));
+            tCaustic.position.set(0, 3, 0);
+            const tAcid = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 5, 16), new THREE.MeshStandardMaterial({ color: 0xa855f7 }));
+            tAcid.position.set(3, 3, 0);
+            cipGroup.add(tWater, tCaustic, tAcid);
+            factoryGroup.add(cipGroup);
+
+            // --- FBE_10: Frota AMR ---
+            const aMat = cloneMat(matAMR);
+            const amr = new THREE.Mesh(new THREE.BoxGeometry(3, 1, 2), aMat);
+            amr.position.set(30, 0.5, 20);
+            amr.castShadow = true;
+            amr.userData = { id: "fbe10", name: "10. Frota_AMR", data: { "robot_1_battery": "25", "robot_1_location": "{0, 0}", "robot_1_status": "recalculando_rota", "collision_alert": "false", "payload_weight": "368" }, originalHex: aMat.emissive.getHex() };
+            interactables.push(amr);
+            const payload = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 1.8), matCopper);
+            payload.position.y = 1.5;
+            amr.add(payload);
+            factoryGroup.add(amr);
+
+            // --- FBE_11: Smart Grid (Turbina) ---
+            const turbineGroup = new THREE.Group();
+            turbineGroup.position.set(40, 0, -30);
+            const gridMat = cloneMat(matTurbine);
+            const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.5, 30, 16), gridMat);
+            mast.position.y = 15;
+            mast.castShadow = true;
+            mast.userData = { id: "fbe11", name: "11. Smart_Grid", data: { "grid_power_cost": "161", "v2g_battery_lvl": "16", "main_load_draw": "73", "grid_fault_detec": "false" }, originalHex: gridMat.emissive.getHex() };
+            interactables.push(mast);
+            const nacelle = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 4), matTurbine);
+            nacelle.position.set(0, 30, 0);
+            const rotorGroup = new THREE.Group();
+            rotorGroup.position.set(0, 30, 2);
+            for (let i = 0; i < 3; i++) {
+                const blade = new THREE.Mesh(new THREE.BoxGeometry(0.2, 12, 1), matTurbine);
+                blade.position.y = 6;
+                const pivot = new THREE.Group();
+                pivot.rotation.z = (Math.PI * 2 / 3) * i;
+                pivot.add(blade);
+                rotorGroup.add(pivot);
+            }
+            turbineGroup.add(mast, nacelle, rotorGroup);
+            factoryGroup.add(turbineGroup);
+
+            // --- TUBAGENS ---
+            function createPipe(p1, p2, material) {
+                const path = new THREE.LineCurve3(p1, p2);
+                const pipe = new THREE.Mesh(new THREE.TubeGeometry(path, 1, 0.2, 8, false), material);
+                factoryGroup.add(pipe);
+            }
+            createPipe(new THREE.Vector3(15, 13, -20), new THREE.Vector3(25, 13, -20), matPipeHot);
+            createPipe(new THREE.Vector3(25, 13, -20), new THREE.Vector3(25, 2.5, -10), matPipeHot);
+            createPipe(new THREE.Vector3(25, 2.5, -10), new THREE.Vector3(25, 15, -10), matPipeCold);
+            createPipe(new THREE.Vector3(25, 15, -10), new THREE.Vector3(15, 15, 10), matPipeCold);
+            createPipe(new THREE.Vector3(15, 15, 10), new THREE.Vector3(0, 15, 10), matPipeCold);
+            createPipe(new THREE.Vector3(-30, 6, 10), new THREE.Vector3(-30, 18, 10), matPipeCIP);
+            createPipe(new THREE.Vector3(-30, 18, 10), new THREE.Vector3(0, 18, 10), matPipeCIP);
+
+            // =======================================================
+            // 3. LÓGICA DE INTERAÇÃO E HUD
+            // =======================================================
+            function onMouseMove(event) {
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            }
+
+            function clearDetailsPanel() {
+                const panel = document.getElementById('details-panel');
+                const eqName = document.getElementById('eq-name');
+                const eqStatus = document.getElementById('eq-status');
+                const eqData = document.getElementById('eq-data-container');
+                if (panel) panel.style.opacity = '0.5';
+                if (eqName) eqName.innerText = "Selecione um Equipamento";
+                if (eqStatus) { eqStatus.innerText = "---"; eqStatus.className = "text-xs text-slate-400"; }
+                if (eqData) eqData.innerHTML = '<div class="text-slate-400 text-xs italic py-4 text-center">Nenhum equipamento selecionado. Passe o rato e clique num tanque ou máquina.</div>';
+            }
+
+            function onClick(event) {
+                if (hoveredObject) {
+                    selectedObject = hoveredObject;
+                    updateHUDDetails(selectedObject.userData);
+                    var fbeIdStr = (selectedObject.userData.id || "").replace(/fbe/i, "");
+                    var fbeId = parseInt(fbeIdStr, 10);
+                    if (!isNaN(fbeId) && fbeId >= 1 && fbeId <= 11 && window.parent !== window) {
+                        window.parent.postMessage({ type: "select_fbe_3d", id: fbeId }, "*");
+                    }
+                } else {
+                    if (selectedObject) selectedObject.material.emissive.setHex(selectedObject.userData.originalHex);
+                    selectedObject = null;
+                    clearDetailsPanel();
+                }
+            }
+
+            window.addEventListener('mousemove', onMouseMove, false);
+            window.addEventListener('click', onClick, false);
+
+            function updateHUDDetails(userData) {
+                const panel = document.getElementById('details-panel');
+                const eqName = document.getElementById('eq-name');
+                const eqStatus = document.getElementById('eq-status');
+                const eqData = document.getElementById('eq-data-container');
+                if (!userData || !eqName || !eqStatus || !eqData) return;
+                if (panel) panel.style.opacity = '1';
+                eqName.innerText = userData.name;
+
+                let isAlert = false;
+                let html = '';
+                for (const [key, value] of Object.entries(userData.data || {})) {
+                    let valClass = "val";
+                    if (value === "true" && key.includes("jam")) { valClass = "val-alert"; isAlert = true; }
+                    if (value === "0" && key.includes("speed")) { valClass = "val-alert"; }
+                    if (value === "recalculando_rota") { valClass = "val-warn"; isAlert = true; }
+                    html += '<div class="data-row"><span>' + key + ':</span> <span class="' + valClass + '">' + value + '</span></div>';
+                }
+
+                eqStatus.innerText = isAlert ? "ALERTA" : "ONLINE";
+                eqStatus.className = isAlert ? "text-xs text-red-500 font-bold animate-pulse" : "text-xs text-green-400";
+                eqData.innerHTML = html;
+            }
+
+            // =======================================================
+            // 4. LOOP DE ANIMAÇÃO (RENDER)
+            // =======================================================
+            const clock = new THREE.Clock();
+
+            function animate() {
+                requestAnimationFrame(animate);
+                const time = clock.getElapsedTime();
+                controls.update();
+
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(interactables);
+
+                if (intersects.length > 0) {
+                    if (hoveredObject !== intersects[0].object) {
+                        if (hoveredObject && hoveredObject !== selectedObject) hoveredObject.material.emissive.setHex(hoveredObject.userData.originalHex);
+                        hoveredObject = intersects[0].object;
+                        hoveredObject.material.emissive.setHex(0x334155);
+                        document.body.style.cursor = 'pointer';
+                    }
+                } else {
+                    if (hoveredObject && hoveredObject !== selectedObject) hoveredObject.material.emissive.setHex(hoveredObject.userData.originalHex);
+                    hoveredObject = null;
+                    document.body.style.cursor = 'default';
+                }
+
+                if (selectedObject) {
+                    let color = 0x1e40af;
+                    if (selectedObject.userData.id === "fbe08") color = (time % 1 > 0.5) ? 0xef4444 : 0x000000;
+                    if (selectedObject.userData.id === "fbe10") color = 0xb45309;
+                    selectedObject.material.emissive.setHex(color);
+                }
+
+                rotorGroup.rotation.z -= 0.05;
+
+                amr.position.x = 20 + Math.sin(time * 0.5) * 15;
+                amr.rotation.y = Math.cos(time * 0.5) > 0 ? 0 : Math.PI;
+
+                bottles.forEach(b => {
+                    b.position.x += 0.05;
+                    if (b.position.x > 8) b.position.x = -8;
+                });
+
+                steamParticles.children.forEach(p => {
+                    p.position.y += p.userData.velocity;
+                    p.position.x += p.userData.xDrift;
+                    p.userData.life += 0.005;
+                    p.material.opacity = 0.5 * (1 - p.userData.life);
+                    if (p.userData.life >= 1) {
+                        p.position.set(15 + (Math.random() - 0.5) * 1.5, 19, -20 + (Math.random() - 0.5) * 1.5);
+                        p.userData.life = 0;
+                    }
+                });
+
+                renderer.render(scene, camera);
+            }
+
+            animate();
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }, false);
+        };
+    </script>
+</body>
+</html>

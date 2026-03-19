@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Desenho SVG - Linha de Envase</title>
+    <style>
+        @keyframes bottle-move {
+            0% { transform: translateX(-100px); }
+            100% { transform: translateX(300px); }
+        }
+        @keyframes filler-down {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(15px); }
+        }
+        @keyframes capper-press {
+            0%, 80% { transform: translateY(0); }
+            90% { transform: translateY(10px); }
+        }
+        .bottle-group {
+            animation: bottle-move 8s linear infinite;
+        }
+        .filler-head {
+            animation: filler-down 2s ease-in-out infinite;
+        }
+        .capper-head {
+            animation: capper-press 2s ease-in-out infinite;
+            animation-delay: 0.5s;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="bg-white p-8 rounded-2xl shadow-xl max-w-2xl w-full">
+        <h1 class="text-2xl font-bold text-slate-800 mb-6 text-center">Linha de Envase Automatizada</h1>
+
+        <div class="relative flex justify-center bg-slate-50 rounded-xl overflow-hidden border border-slate-200">
+            <!-- SVG da Linha de Envase -->
+            <svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+                <!-- Definições -->
+                <defs>
+                    <linearGradient id="glass" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" style="stop-color:#451a03;stop-opacity:1" />
+                        <stop offset="50%" style="stop-color:#92400e;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#451a03;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="steel" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#94a3b8;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#475569;stop-opacity:1" />
+                    </linearGradient>
+                </defs>
+
+                <!-- Esteira Transportadora (Conveyor) -->
+                <rect x="0" y="220" width="400" height="20" fill="#334155" />
+                <rect x="0" y="215" width="400" height="5" fill="#1e293b" />
+                <!-- Rolamentos da Esteira -->
+                <circle cx="20" cy="230" r="4" fill="#64748b" />
+                <circle cx="60" cy="230" r="4" fill="#64748b" />
+                <circle cx="100" cy="230" r="4" fill="#64748b" />
+                <circle cx="140" cy="230" r="4" fill="#64748b" />
+                <circle cx="180" cy="230" r="4" fill="#64748b" />
+                <circle cx="220" cy="230" r="4" fill="#64748b" />
+                <circle cx="260" cy="230" r="4" fill="#64748b" />
+                <circle cx="300" cy="230" r="4" fill="#64748b" />
+                <circle cx="340" cy="230" r="4" fill="#64748b" />
+                <circle cx="380" cy="230" r="4" fill="#64748b" />
+
+                <!-- Grupo de Garrafas Animadas -->
+                <g class="bottle-group">
+                    <!-- Garrafa 1 -->
+                    <g transform="translate(40, 160)">
+                        <path d="M5 10 L15 10 L15 25 L20 30 L20 60 L0 60 L0 30 L5 25 Z" fill="url(#glass)" />
+                        <rect x="2" y="40" width="16" height="15" fill="#fbbf24" opacity="0.8" /> <!-- Rótulo -->
+                    </g>
+                    <!-- Garrafa 2 -->
+                    <g transform="translate(120, 160)">
+                        <path d="M5 10 L15 10 L15 25 L20 30 L20 60 L0 60 L0 30 L5 25 Z" fill="url(#glass)" />
+                        <rect x="2" y="40" width="16" height="15" fill="#fbbf24" opacity="0.8" />
+                    </g>
+                    <!-- Garrafa 3 -->
+                    <g transform="translate(200, 160)">
+                        <path d="M5 10 L15 10 L15 25 L20 30 L20 60 L0 60 L0 30 L5 25 Z" fill="url(#glass)" />
+                        <rect x="2" y="40" width="16" height="15" fill="#fbbf24" opacity="0.8" />
+                    </g>
+                    <!-- Garrafa 4 -->
+                    <g transform="translate(280, 160)">
+                        <path d="M5 10 L15 10 L15 25 L20 30 L20 60 L0 60 L0 30 L5 25 Z" fill="url(#glass)" />
+                        <rect x="2" y="40" width="16" height="15" fill="#fbbf24" opacity="0.8" />
+                    </g>
+                </g>
+
+                <!-- Estação de Enchimento (Filler) -->
+                <g transform="translate(110, 50)">
+                    <rect x="0" y="0" width="60" height="40" rx="5" fill="url(#steel)" stroke="#1e293b" />
+                    <g class="filler-head">
+                        <rect x="25" y="40" width="10" height="60" fill="#94a3b8" />
+                        <rect x="22" y="100" width="16" height="5" fill="#475569" />
+                        <path d="M30 105 L30 115" stroke="#fbbf24" stroke-width="2" opacity="0.6" /> <!-- Jato de Cerveja -->
+                    </g>
+                    <text x="10" y="25" font-size="8" fill="white" font-weight="bold">ENCHIMENTO</text>
+                </g>
+
+                <!-- Estação de Arrolhamento (Capper) -->
+                <g transform="translate(250, 50)">
+                    <rect x="0" y="0" width="60" height="40" rx="5" fill="url(#steel)" stroke="#1e293b" />
+                    <g class="capper-head">
+                        <rect x="20" y="40" width="20" height="70" fill="#64748b" />
+                        <path d="M15 110 L45 110 L40 120 L20 120 Z" fill="#1e293b" /> <!-- Prensa -->
+                    </g>
+                    <text x="5" y="25" font-size="8" fill="white" font-weight="bold">ARROLHADOR</text>
+                </g>
+
+                <!-- Painel de Controlo -->
+                <rect x="20" y="40" width="50" height="70" rx="2" fill="#334155" />
+                <circle cx="35" cy="55" r="3" fill="#22c55e" /> <!-- Luz verde -->
+                <circle cx="55" cy="55" r="3" fill="#ef4444" opacity="0.3" /> <!-- Luz vermelha -->
+                <rect x="30" y="70" width="30" height="5" fill="#1e293b" />
+                <rect x="30" y="80" width="30" height="5" fill="#1e293b" />
+                <rect x="30" y="90" width="30" height="20" rx="1" fill="#000" /> <!-- Ecrã -->
+                <text x="32" y="103" font-size="5" fill="#22c55e" font-family="monospace">RUN</text>
+            </svg>
+        </div>
+
+        <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-slate-600">
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-slate-800 rounded mt-1"></div>
+                <p><strong>Esteira Sincronizada:</strong> Garante o posicionamento milimétrico das garrafas sob os bicos de enchimento.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-amber-700 rounded mt-1"></div>
+                <p><strong>Enchimento por Contrapressão:</strong> Minimiza a oxidação e preserva a carbonatação durante o envase.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-slate-900 rounded mt-1"></div>
+                <p><strong>Cabeçal de Arrolhamento:</strong> Aplica a pressão exata para selar a carica ou rolha hermeticamente.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-green-500 rounded mt-1"></div>
+                <p><strong>Controlo PLC:</strong> Monitorização em tempo real da velocidade, volume e possíveis falhas na linha.</p>
+            </div>
+        </div>
+
+        <div class="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center">
+            <span class="text-xs font-mono text-slate-400">ESQUEMÁTICO V1.7 (BOTTLING)</span>
+            <button onclick="window.print()" class="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm">
+                Imprimir Relatório Final
+            </button>
+        </div>
+    </div>
+
+</body>
+</html>

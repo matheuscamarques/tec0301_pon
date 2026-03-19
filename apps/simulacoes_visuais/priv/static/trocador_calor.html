@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Desenho SVG - Trocador de Calor</title>
+    <style>
+        @keyframes flow-hot {
+            0% { stroke-dashoffset: 40; }
+            100% { stroke-dashoffset: 0; }
+        }
+        @keyframes flow-cold {
+            0% { stroke-dashoffset: 0; }
+            100% { stroke-dashoffset: 40; }
+        }
+        .flow-line-hot {
+            stroke-dasharray: 8, 4;
+            animation: flow-hot 1s linear infinite;
+        }
+        .flow-line-cold {
+            stroke-dasharray: 8, 4;
+            animation: flow-cold 1s linear infinite;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="bg-white p-8 rounded-2xl shadow-xl max-w-2xl w-full">
+        <h1 class="text-2xl font-bold text-slate-800 mb-6 text-center">Trocador de Calor de Placas</h1>
+
+        <div class="relative flex justify-center">
+            <!-- SVG do Trocador de Calor -->
+            <svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+                <!-- Definições de Gradientes -->
+                <defs>
+                    <linearGradient id="steel-plate" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" style="stop-color:#475569;stop-opacity:1" />
+                        <stop offset="50%" style="stop-color:#94a3b8;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#475569;stop-opacity:1" />
+                    </linearGradient>
+                </defs>
+
+                <!-- Estrutura Principal (Frame) -->
+                <rect x="120" y="100" width="160" height="200" rx="4" fill="#1e293b" />
+
+                <!-- Placas Internas (Empilhamento) -->
+                <g transform="translate(130, 110)">
+                    <rect x="0" y="0" width="140" height="180" fill="url(#steel-plate)" />
+                    <!-- Linhas que representam as placas individuais -->
+                    <line x1="10" y1="0" x2="10" y2="180" stroke="#1e293b" stroke-width="1" />
+                    <line x1="20" y1="0" x2="20" y2="180" stroke="#1e293b" stroke-width="1" />
+                    <line x1="30" y1="0" x2="30" y2="180" stroke="#1e293b" stroke-width="1" />
+                    <line x1="40" y1="0" x2="40" y2="180" stroke="#1e293b" stroke-width="1" />
+                    <line x1="50" y1="0" x2="50" y2="180" stroke="#1e293b" stroke-width="1" />
+                    <line x1="60" y1="0" x2="60" y2="180" stroke="#1e293b" stroke-width="1" />
+                    <line x1="70" y1="0" x2="70" y2="180" stroke="#1e293b" stroke-width="1" />
+                    <line x1="80" y1="0" x2="80" y2="180" stroke="#1e293b" stroke-width="1" />
+                    <line x1="90" y1="0" x2="90" y2="180" stroke="#1e293b" stroke-width="1" />
+                    <line x1="100" y1="0" x2="100" y2="180" stroke="#1e293b" stroke-width="1" />
+                    <line x1="110" y1="0" x2="110" y2="180" stroke="#1e293b" stroke-width="1" />
+                    <line x1="120" y1="0" x2="120" y2="180" stroke="#1e293b" stroke-width="1" />
+                    <line x1="130" y1="0" x2="130" y2="180" stroke="#1e293b" stroke-width="1" />
+                </g>
+
+                <!-- Portas de Entrada/Saída -->
+
+                <!-- Circuito do Mosto (Wort) - Quente/Frio -->
+                <g>
+                    <!-- Entrada Mosto Quente (Canto Superior Esquerdo) -->
+                    <rect x="80" y="130" width="50" height="15" fill="#ef4444" />
+                    <path class="flow-line-hot" d="M80 137.5 L130 137.5" stroke="white" stroke-width="2" fill="none" />
+                    <text x="30" y="125" font-size="10" fill="#ef4444" font-weight="bold">MOSTO QUENTE</text>
+
+                    <!-- Saída Mosto Frio (Canto Inferior Esquerdo) -->
+                    <rect x="80" y="255" width="50" height="15" fill="#f97316" />
+                    <path class="flow-line-hot" d="M130 262.5 L80 262.5" stroke="white" stroke-width="2" fill="none" />
+                    <text x="30" y="285" font-size="10" fill="#f97316" font-weight="bold">MOSTO FRIO</text>
+                </g>
+
+                <!-- Circuito da Água (Water) - Fria/Quente -->
+                <g>
+                    <!-- Entrada Água Fria (Canto Inferior Direito) -->
+                    <rect x="270" y="255" width="50" height="15" fill="#3b82f6" />
+                    <path class="flow-line-cold" d="M320 262.5 L270 262.5" stroke="white" stroke-width="2" fill="none" />
+                    <text x="325" y="285" font-size="10" fill="#3b82f6" font-weight="bold">ÁGUA FRIA</text>
+
+                    <!-- Saída Água Quente (Canto Superior Direito) -->
+                    <rect x="270" y="130" width="50" height="15" fill="#93c5fd" />
+                    <path class="flow-line-cold" d="M270 137.5 L320 137.5" stroke="white" stroke-width="2" fill="none" />
+                    <text x="325" y="125" font-size="10" fill="#60a5fa" font-weight="bold">ÁGUA QUENTE</text>
+                </g>
+
+                <!-- Pernas de Suporte -->
+                <rect x="140" y="300" width="10" height="30" fill="#334155" />
+                <rect x="250" y="300" width="10" height="30" fill="#334155" />
+
+                <!-- Sombra -->
+                <ellipse cx="200" cy="335" rx="80" ry="6" fill="#cbd5e1" opacity="0.5" />
+            </svg>
+        </div>
+
+        <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-slate-600">
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-red-500 rounded mt-1"></div>
+                <p><strong>Fluxo Contracorrente:</strong> O mosto e a água circulam em sentidos opostos para maximizar a troca térmica.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-slate-400 rounded mt-1"></div>
+                <p><strong>Placas Inox:</strong> Placas corrugadas que aumentam a área de contacto e criam turbulência para maior eficiência.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-blue-500 rounded mt-1"></div>
+                <p><strong>Sanitização:</strong> Design desmontável ou compatível com CIP (Clean-in-Place) para evitar contaminações.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-blue-200 rounded mt-1"></div>
+                <p><strong>Poupança de Água:</strong> A água aquecida na saída pode ser recuperada para a próxima mosturação.</p>
+            </div>
+        </div>
+
+        <div class="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center">
+            <span class="text-xs font-mono text-slate-400">ESQUEMÁTICO V1.4</span>
+            <button onclick="window.print()" class="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm">
+                Descarregar Diagrama
+            </button>
+        </div>
+    </div>
+
+</body>
+</html>

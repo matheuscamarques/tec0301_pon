@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <title>Digital Twin 3D - Moinho de Malte Detalhado</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0f172a; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+
+        #hud {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: flex; flex-direction: column;
+            justify-content: space-between; padding: 1.5rem; box-sizing: border-box;
+        }
+        .panel {
+            background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(8px);
+            border: 1px solid rgba(71, 85, 105, 0.8); border-radius: 12px;
+            padding: 1rem; pointer-events: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            transition: all 0.3s ease;
+        }
+        .data-row { display: flex; justify-content: space-between; font-family: monospace; font-size: 0.85rem; margin-top: 0.5rem; color: #cbd5e1; border-bottom: 1px solid #334155; padding-bottom: 0.2rem;}
+        .val { color: #10b981; font-weight: bold; }
+        .val-warn { color: #f59e0b; font-weight: bold; }
+        .val-alert { color: #ef4444; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="hud">
+        <div class="flex justify-between items-start">
+            <div class="panel max-w-sm">
+                <h1 class="text-2xl font-bold text-white flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
+                    Moinho de Malte 3D
+                </h1>
+                <p class="text-slate-400 text-xs mt-1">Foco Detalhado (FBE_01). Clique no equipamento para ler a telemetria.</p>
+            </div>
+
+            <div class="panel">
+                <h2 class="text-white font-bold text-sm mb-2 border-b border-slate-600 pb-1">STATUS DO MOINHO</h2>
+                <div class="data-row"><span>Estado Geral:</span> <span class="val">OPERACIONAL</span></div>
+                <div class="data-row"><span>Alimentação:</span> <span class="val">ATIVA</span></div>
+                <div class="data-row border-0"><span>Manutenção:</span> <span class="val-warn">Vibração Alta</span></div>
+            </div>
+        </div>
+
+        <div class="flex justify-end items-end">
+            <div id="details-panel" class="panel w-80" style="opacity: 0.5;">
+                <h2 class="text-white font-bold text-sm mb-2 border-b border-slate-600 pb-1 flex justify-between">
+                    <span id="eq-name">Inspecionar Equipamento</span>
+                    <span id="eq-status" class="text-xs text-slate-400">---</span>
+                </h2>
+                <div id="eq-data-container">
+                    <div class="text-slate-400 text-xs italic py-4 text-center">Clique no moinho para ver os dados.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script>
+        (function() {
+            var FBE_ID = 1;
+            var HUD_MAP = {};
+            function escapeHtml(s) { if (!s) return ""; var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+            window.addEventListener("message", function(e) {
+                if (e.origin !== window.location.origin || !e.data || e.data.type !== "fbe_facts" || e.data.fbeId !== FBE_ID) return;
+                var facts = e.data.facts || [];
+                var c = document.getElementById("eq-data-container");
+                if (c) {
+                    var html = "";
+                    for (var i = 0; i < facts.length; i++) {
+                        html += "<div class=\"data-row\"><span>" + escapeHtml(facts[i].label) + "</span> <span class=\"val\">" + escapeHtml(facts[i].value) + "</span></div>";
+                    }
+                    c.innerHTML = html || "<div class=\"text-slate-400 text-xs italic py-4 text-center\">Dados em tempo real (Smart Brewery).</div>";
+                }
+                for (var j = 0; j < facts.length; j++) {
+                    var id = HUD_MAP[facts[j].label];
+                    if (id) { var el = document.getElementById(id); if (el) el.textContent = facts[j].value; }
+                }
+            });
+        })();
+        window.onload = function () {
+            const container = document.getElementById('canvas-container');
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f172a);
+            scene.fog = new THREE.FogExp2(0x0f172a, 0.015);
+
+            const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(30, 25, 40);
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 - 0.01;
+            controls.target.set(0, 10, 0);
+
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+            let hoveredObject = null;
+            let selectedObject = null;
+            const interactables = [];
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(20, 40, 20);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 100;
+            dirLight.shadow.camera.left = -20;
+            dirLight.shadow.camera.right = 20;
+            dirLight.shadow.camera.top = 20;
+            dirLight.shadow.camera.bottom = -20;
+            scene.add(dirLight);
+            const blueLight = new THREE.PointLight(0x3b82f6, 1.5, 50);
+            blueLight.position.set(-15, 10, 15);
+            scene.add(blueLight);
+            const orangeLight = new THREE.PointLight(0xf97316, 1, 50);
+            orangeLight.position.set(15, 5, -15);
+            scene.add(orangeLight);
+
+            const matFloor = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.7, metalness: 0.3 });
+            const matSteel = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.3, metalness: 0.8 });
+            const matDarkSteel = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6, metalness: 0.5 });
+            const matMotor = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.4, metalness: 0.6 });
+            const matWarning = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.5, metalness: 0.2 });
+            const matGrain = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 1, metalness: 0 });
+
+            const floor = new THREE.Mesh(new THREE.CylinderGeometry(20, 20, 1, 64), matFloor);
+            floor.position.y = -0.5;
+            floor.receiveShadow = true;
+            scene.add(floor);
+            const gridHelper = new THREE.GridHelper(40, 20, 0x334155, 0x334155);
+            scene.add(gridHelper);
+
+            const millGroup = new THREE.Group();
+            scene.add(millGroup);
+
+            const frameGroup = new THREE.Group();
+            const legGeo = new THREE.BoxGeometry(0.8, 8, 0.8);
+            [[3.5, 4, 2.5], [-3.5, 4, 2.5], [3.5, 4, -2.5], [-3.5, 4, -2.5]].forEach(pos => {
+                const leg = new THREE.Mesh(legGeo, matDarkSteel);
+                leg.position.set(...pos);
+                leg.castShadow = true;
+                leg.receiveShadow = true;
+                frameGroup.add(leg);
+            });
+            const crossGeoX = new THREE.BoxGeometry(7.8, 0.4, 0.4);
+            const cross1 = new THREE.Mesh(crossGeoX, matDarkSteel);
+            cross1.position.set(0, 2, 2.5);
+            const cross2 = new THREE.Mesh(crossGeoX, matDarkSteel);
+            cross2.position.set(0, 2, -2.5);
+            const crossGeoZ = new THREE.BoxGeometry(0.4, 0.4, 5.8);
+            const cross3 = new THREE.Mesh(crossGeoZ, matDarkSteel);
+            cross3.position.set(3.5, 2, 0);
+            const cross4 = new THREE.Mesh(crossGeoZ, matDarkSteel);
+            cross4.position.set(-3.5, 2, 0);
+            frameGroup.add(cross1, cross2, cross3, cross4);
+            millGroup.add(frameGroup);
+
+            const chamber = new THREE.Mesh(new THREE.BoxGeometry(8, 5, 6), matSteel);
+            chamber.position.y = 10.5;
+            chamber.castShadow = true;
+            chamber.receiveShadow = true;
+            millGroup.add(chamber);
+            const chamberDoor = new THREE.Mesh(new THREE.BoxGeometry(4, 3, 0.2), matDarkSteel);
+            chamberDoor.position.set(0, 10.5, 3.05);
+            millGroup.add(chamberDoor);
+
+            const hopperGeo = new THREE.CylinderGeometry(5, 2, 6, 4);
+            const hopper = new THREE.Mesh(hopperGeo, matSteel);
+            hopper.rotation.y = Math.PI / 4;
+            hopper.position.y = 16;
+            hopper.castShadow = true;
+            millGroup.add(hopper);
+            const hopperRim = new THREE.Mesh(new THREE.BoxGeometry(7.5, 0.5, 7.5), matDarkSteel);
+            hopperRim.position.y = 18.8;
+            millGroup.add(hopperRim);
+            const inlet = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 2, 16), matDarkSteel);
+            inlet.position.y = 20;
+            millGroup.add(inlet);
+
+            const chute = new THREE.Mesh(new THREE.CylinderGeometry(2, 1, 3, 4), matSteel);
+            chute.rotation.y = Math.PI / 4;
+            chute.position.y = 6.5;
+            chute.castShadow = true;
+            millGroup.add(chute);
+
+            const motorGroup = new THREE.Group();
+            motorGroup.position.set(4.5, 10.5, 0);
+            const motorBody = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 4, 32), matMotor);
+            motorBody.rotation.x = Math.PI / 2;
+            motorBody.castShadow = true;
+            motorGroup.add(motorBody);
+            const motorFanCover = new THREE.Mesh(new THREE.CylinderGeometry(1.9, 1.9, 1, 16), matDarkSteel);
+            motorFanCover.rotation.x = Math.PI / 2;
+            motorFanCover.position.z = -2;
+            motorGroup.add(motorFanCover);
+            const motorAxle = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 2, 16), matSteel);
+            motorAxle.rotation.x = Math.PI / 2;
+            motorAxle.position.z = 2;
+            motorGroup.add(motorAxle);
+            millGroup.add(motorGroup);
+
+            const beltGuard = new THREE.Mesh(new THREE.BoxGeometry(1.5, 6, 3), matWarning);
+            beltGuard.position.set(4.5, 10.5, 3);
+            beltGuard.castShadow = true;
+            millGroup.add(beltGuard);
+
+            const controlPanel = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2, 1), matDarkSteel);
+            controlPanel.position.set(-4.1, 11, 2);
+            millGroup.add(controlPanel);
+            const led = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 8), new THREE.MeshBasicMaterial({ color: 0x10b981 }));
+            led.position.set(-4.9, 11.5, 2.3);
+            millGroup.add(led);
+
+            const hitBoxGeo = new THREE.BoxGeometry(12, 22, 10);
+            const hitBoxMat = new THREE.MeshBasicMaterial({ visible: false });
+            const millHitBox = new THREE.Mesh(hitBoxGeo, hitBoxMat);
+            millHitBox.position.y = 11;
+            millHitBox.userData = {
+                id: "fbe01",
+                name: "Moinho de Malte",
+                data: {
+                    "Motor RPM": "517",
+                    "Nível Vibração": "85",
+                    "Nível Silo (Hopper)": "46%",
+                    "Temp. Motor": "79 °C",
+                    "Válvula Alimentação": "OPEN"
+                },
+                isHighlighted: false
+            };
+            interactables.push(millHitBox);
+            scene.add(millHitBox);
+
+            const outlineGeo = new THREE.EdgesGeometry(hitBoxGeo);
+            const outlineMat = new THREE.LineBasicMaterial({ color: 0x3b82f6, linewidth: 2, transparent: true, opacity: 0 });
+            const outline = new THREE.LineSegments(outlineGeo, outlineMat);
+            outline.position.y = 11;
+            scene.add(outline);
+
+            const grainCount = 50;
+            const grains = new THREE.Group();
+            const grainGeo = new THREE.SphereGeometry(0.15, 4, 4);
+            for (let i = 0; i < grainCount; i++) {
+                const g = new THREE.Mesh(grainGeo, matGrain);
+                g.position.set((Math.random() - 0.5) * 2, 22 + Math.random() * 5, (Math.random() - 0.5) * 2);
+                g.userData = { velocity: Math.random() * 0.15 + 0.1, life: 0 };
+                grains.add(g);
+            }
+            scene.add(grains);
+
+            function onMouseMove(event) {
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            }
+
+            function clearDetailsPanel() {
+                const panel = document.getElementById('details-panel');
+                const eqName = document.getElementById('eq-name');
+                const eqStatus = document.getElementById('eq-status');
+                const eqData = document.getElementById('eq-data-container');
+                if (panel) panel.style.opacity = '0.5';
+                if (eqName) eqName.innerText = "Inspecionar Equipamento";
+                if (eqStatus) { eqStatus.innerText = "---"; eqStatus.className = "text-xs text-slate-400"; }
+                if (eqData) eqData.innerHTML = '<div class="text-slate-400 text-xs italic py-4 text-center">Clique no moinho para ver os dados.</div>';
+            }
+
+            function onClick(event) {
+                if (hoveredObject) {
+                    selectedObject = hoveredObject;
+                    updateHUDDetails(selectedObject.userData);
+                } else {
+                    selectedObject = null;
+                    outline.material.opacity = 0;
+                    clearDetailsPanel();
+                }
+            }
+
+            window.addEventListener('mousemove', onMouseMove, false);
+            window.addEventListener('click', onClick, false);
+
+            function updateHUDDetails(userData) {
+                const panel = document.getElementById('details-panel');
+                const eqName = document.getElementById('eq-name');
+                const eqStatus = document.getElementById('eq-status');
+                const eqData = document.getElementById('eq-data-container');
+                if (!userData || !eqName || !eqStatus || !eqData) return;
+                if (panel) panel.style.opacity = '1';
+                eqName.innerText = userData.name;
+
+                let html = '';
+                for (const [key, value] of Object.entries(userData.data || {})) {
+                    let valClass = "val";
+                    if (key === "Nível Vibração" && parseInt(value, 10) > 80) valClass = "val-alert";
+                    if (key === "Temp. Motor" && parseInt(value, 10) > 75) valClass = "val-warn";
+                    var safeKey = key.replace(/\s/g, '');
+                    html += '<div class="data-row"><span>' + key + ':</span> <span class="' + valClass + '" id="dyn-' + safeKey + '">' + value + '</span></div>';
+                }
+                eqStatus.innerText = "ONLINE";
+                eqStatus.className = "text-xs text-green-400";
+                eqData.innerHTML = html;
+            }
+
+            function animate() {
+                requestAnimationFrame(animate);
+                controls.update();
+
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(interactables);
+
+                if (intersects.length > 0) {
+                    if (hoveredObject !== intersects[0].object) {
+                        hoveredObject = intersects[0].object;
+                        document.body.style.cursor = 'pointer';
+                        if (!selectedObject) outline.material.opacity = 0.3;
+                    }
+                } else {
+                    hoveredObject = null;
+                    document.body.style.cursor = 'default';
+                    if (!selectedObject) outline.material.opacity = 0;
+                }
+
+                if (selectedObject) outline.material.opacity = 0.8;
+
+                grains.children.forEach(g => {
+                    g.position.y -= g.userData.velocity;
+                    if (g.position.y < 16) {
+                        g.position.set((Math.random() - 0.5) * 2, 22 + Math.random() * 2, (Math.random() - 0.5) * 2);
+                    }
+                });
+
+                const t = Date.now() * 0.05;
+                chamber.position.x = Math.sin(t) * 0.02;
+                hopper.position.x = Math.sin(t) * 0.02;
+
+                renderer.render(scene, camera);
+            }
+
+            animate();
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }, false);
+
+            setInterval(() => {
+                if (!selectedObject) return;
+                var rpmEl = document.getElementById('dyn-MotorRPM');
+                var tempEl = document.getElementById('dyn-Temp.Motor');
+                if (rpmEl) {
+                    var rpm = 517 + Math.floor(Math.random() * 10 - 5);
+                    rpmEl.innerText = rpm;
+                }
+                if (tempEl) {
+                    var temp = 79 + Math.floor(Math.random() * 2);
+                    tempEl.innerText = temp + " °C";
+                }
+            }, 1500);
+        };
+    </script>
+</body>
+</html>

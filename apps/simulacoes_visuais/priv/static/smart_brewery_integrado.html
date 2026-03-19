@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Fábrica de Cerveja Inteligente - Esquema Integrado</title>
+    <style>
+        /* Animações de Fluxo e Componentes */
+        @keyframes flow-grain { 0% { stroke-dashoffset: 20; } 100% { stroke-dashoffset: 0; } }
+        @keyframes flow-hot { 0% { stroke-dashoffset: 20; } 100% { stroke-dashoffset: 0; } }
+        @keyframes flow-cold { 0% { stroke-dashoffset: 20; } 100% { stroke-dashoffset: 0; } }
+        @keyframes flow-cip { 0% { stroke-dashoffset: 20; } 100% { stroke-dashoffset: 0; } }
+        @keyframes flow-power { 0% { stroke-dashoffset: 20; } 100% { stroke-dashoffset: 0; } }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes blink-alert { 0%, 100% { opacity: 1; fill: #ef4444; } 50% { opacity: 0.5; fill: #fca5a5; } }
+        @keyframes steam-rise { 0% { transform: translateY(0); opacity: 0.6; } 100% { transform: translateY(-20px); opacity: 0; } }
+
+        .path-grain { stroke: #d97706; stroke-dasharray: 6, 4; animation: flow-grain 1s linear infinite; }
+        .path-hot { stroke: #ef4444; stroke-dasharray: 8, 4; animation: flow-hot 1s linear infinite; }
+        .path-cold { stroke: #3b82f6; stroke-dasharray: 8, 4; animation: flow-cold 1.5s linear infinite; }
+        .path-cip { stroke: #22c55e; stroke-dasharray: 6, 6; animation: flow-cip 2s linear infinite; }
+        .path-power { stroke: #eab308; stroke-dasharray: 4, 4; animation: flow-power 0.5s linear infinite; }
+
+        .spin-slow { transform-origin: center; animation: spin 4s linear infinite; }
+        .spin-fast { transform-origin: center; animation: spin 1s linear infinite; }
+        .alert-indicator { animation: blink-alert 1s infinite; }
+        .steam { animation: steam-rise 2s infinite ease-out; }
+
+        /* Estilos de Texto SVG */
+        .data-label { font-family: monospace; font-size: 10px; fill: #94a3b8; }
+        .data-value { font-family: monospace; font-size: 11px; fill: #10b981; font-weight: bold; }
+        .data-alert { font-family: monospace; font-size: 11px; fill: #ef4444; font-weight: bold; }
+        .data-warn { font-family: monospace; font-size: 11px; fill: #f59e0b; font-weight: bold; }
+        .eq-title { font-family: sans-serif; font-size: 12px; fill: #f8fafc; font-weight: bold; }
+        .custom-scrollbar::-webkit-scrollbar { height: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1e293b; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-slate-900 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="bg-slate-800 p-6 rounded-2xl shadow-2xl w-full max-w-[1400px] border border-slate-700">
+        <div class="flex justify-between items-end mb-6">
+            <div>
+                <h1 class="text-3xl font-bold text-slate-100 mb-2">Smart Brewery (Fábrica Integrada)</h1>
+                <p class="text-slate-400 text-sm">Monitorização Global do Sistema - SCADA View</p>
+            </div>
+            <div class="flex gap-4 text-xs font-mono text-slate-300 bg-slate-900 p-3 rounded-lg border border-slate-700">
+                <div class="flex items-center gap-1"><span class="w-3 h-1 bg-amber-500 block"></span> Grãos</div>
+                <div class="flex items-center gap-1"><span class="w-3 h-1 bg-red-500 block"></span> Mosto Quente</div>
+                <div class="flex items-center gap-1"><span class="w-3 h-1 bg-blue-500 block"></span> Mosto Frio/Cerveja</div>
+                <div class="flex items-center gap-1"><span class="w-3 h-1 bg-green-500 block"></span> CIP</div>
+                <div class="flex items-center gap-1"><span class="w-3 h-1 bg-yellow-500 block"></span> Energia</div>
+            </div>
+        </div>
+
+        <div class="relative flex justify-center bg-slate-950 rounded-xl overflow-x-auto border border-slate-700 custom-scrollbar">
+            <!-- SVG do Sistema Integrado -->
+            <svg width="1200" height="750" viewBox="0 0 1200 750" xmlns="http://www.w3.org/2000/svg" class="min-w-[1200px]">
+                <!-- Definições -->
+                <defs>
+                    <linearGradient id="metal" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#475569" />
+                        <stop offset="50%" stop-color="#94a3b8" />
+                        <stop offset="100%" stop-color="#475569" />
+                    </linearGradient>
+                    <linearGradient id="metal-dark" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#1e293b" />
+                        <stop offset="50%" stop-color="#475569" />
+                        <stop offset="100%" stop-color="#1e293b" />
+                    </linearGradient>
+                    <linearGradient id="copper" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#92400e" />
+                        <stop offset="50%" stop-color="#d97706" />
+                        <stop offset="100%" stop-color="#92400e" />
+                    </linearGradient>
+                    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#334155" stroke-width="0.5" opacity="0.3"/>
+                    </pattern>
+                </defs>
+
+                <!-- Fundo -->
+                <rect width="100%" height="100%" fill="url(#grid)" />
+                <rect x="0" y="680" width="1200" height="70" fill="#0f172a" /> <!-- Chão -->
+
+                <!-- ==================== TUBAGENS E LIGAÇÕES ==================== -->
+                <!-- Malha Energética (Smart Grid -> Todos) -->
+                <path d="M 1100 120 L 1100 40 L 50 40 L 50 100 M 1100 40 L 250 40 L 250 100 M 450 40 L 450 100 M 650 40 L 650 100 M 850 40 L 850 100 M 1050 40 L 1050 100 M 50 40 L 50 600 L 100 600" class="path-power" stroke-width="2" fill="none" opacity="0.4"/>
+
+                <!-- Circuito de Grãos (Moinho -> Mostura) -->
+                <path d="M 120 220 L 120 240 L 250 240 L 250 200" class="path-grain" stroke-width="4" fill="none" />
+
+                <!-- Circuito Quente (Mostura -> Filtro -> Caldeira -> Trocador) -->
+                <path d="M 280 320 L 320 320 L 320 200 L 420 200" class="path-hot" stroke-width="4" fill="none" />
+                <path d="M 460 320 L 500 320 L 500 200 L 580 200" class="path-hot" stroke-width="4" fill="none" />
+                <path d="M 640 320 L 640 340 L 730 340 L 730 320" class="path-hot" stroke-width="4" fill="none" />
+
+                <!-- Circuito Frio (Trocador -> Ferm A -> Ferm B -> Envase) -->
+                <path d="M 770 320 L 770 360 L 850 360 L 850 320" class="path-cold" stroke-width="4" fill="none" />
+                <path d="M 850 320 L 850 380 L 1000 380 L 1000 320" class="path-cold" stroke-width="4" fill="none" />
+                <path d="M 1000 320 L 1000 450 L 900 450 L 900 490" class="path-cold" stroke-width="4" fill="none" />
+
+                <!-- Circuito CIP (CIP -> Brewhouse e Fermentadores) -->
+                <path d="M 330 630 L 400 630 L 400 150 L 220 150 L 220 200 M 400 150 L 420 150 L 420 200 M 400 150 L 580 150 L 580 200 M 400 150 L 850 150 L 850 200 M 850 150 L 1000 150 L 1000 200" class="path-cip" stroke-width="3" fill="none" opacity="0.6" />
+
+
+                <!-- ==================== ELEMENTOS DA FÁBRICA ==================== -->
+
+                <!-- 11. SMART GRID (Topo Direita) -->
+                <g transform="translate(1000, 30)">
+                    <rect x="-10" y="-10" width="180" height="120" rx="8" fill="#1e293b" opacity="0.8" stroke="#3b82f6" stroke-width="1"/>
+                    <text x="10" y="10" class="eq-title">11. SMART GRID</text>
+                    <!-- Turbina -->
+                    <line x1="30" y1="80" x2="30" y2="40" stroke="#94a3b8" stroke-width="3" />
+                    <g transform="translate(30, 40)" class="spin-slow">
+                        <path d="M0 0 L-5 -25 L5 -25 Z M0 0 L20 15 L15 20 Z M0 0 L-20 15 L-15 20 Z" fill="#cbd5e1" />
+                    </g>
+                    <!-- Solar -->
+                    <rect x="50" y="60" width="40" height="20" fill="#1d4ed8" stroke="#60a5fa" transform="skewX(-20)" />
+                    <!-- Bateria -->
+                    <rect x="100" y="50" width="30" height="30" rx="2" fill="#334155" stroke="#475569" />
+                    <rect x="105" y="65" width="20" height="10" fill="#22c55e" />
+                    <!-- Painel Dados -->
+                    <rect x="10" y="95" width="160" height="10" fill="transparent" />
+                    <text x="10" y="100" class="data-label">Load: <tspan class="data-warn">245</tspan> kW | Cost: <tspan class="data-warn">162</tspan> ¢</text>
+                </g>
+
+
+                <!-- 01. MOINHO DE MALTE (Esquerda) -->
+                <g transform="translate(50, 100)">
+                    <rect x="-10" y="-10" width="140" height="140" rx="8" fill="#1e293b" opacity="0.8"/>
+                    <text x="10" y="10" class="eq-title">01. MOINHO DE MALTE</text>
+                    <!-- Funil -->
+                    <path d="M40 30 L100 30 L80 80 L60 80 Z" fill="url(#metal)" />
+                    <!-- Corpo -->
+                    <rect x="50" y="80" width="40" height="40" rx="2" fill="#334155" stroke="#475569" />
+                    <circle cx="60" cy="100" r="8" fill="#1e293b" class="spin-fast" stroke-dasharray="2,2" stroke="#94a3b8"/>
+                    <circle cx="80" cy="100" r="8" fill="#1e293b" class="spin-fast" stroke-dasharray="2,2" stroke="#94a3b8"/>
+                    <!-- Dados FBE_01 -->
+                    <rect x="0" y="130" width="140" height="40" fill="#0f172a" rx="4" />
+                    <text x="5" y="145" class="data-label">RPM Motor: <tspan class="data-value">1025</tspan></text>
+                    <text x="5" y="160" class="data-label">Vibração: <tspan class="data-warn">55</tspan> | Lvl: 13</text>
+                </g>
+
+
+                <!-- 02. TANQUE DE MOSTURA (Centro-Esquerda) -->
+                <g transform="translate(200, 150)">
+                    <rect x="-10" y="-10" width="140" height="200" rx="8" fill="#1e293b" opacity="0.8"/>
+                    <text x="10" y="10" class="eq-title">02. MOSTURA</text>
+                    <!-- Tanque -->
+                    <path d="M30 40 Q30 30 70 30 Q110 30 110 40 L110 150 Q110 160 70 160 Q30 160 30 150 Z" fill="url(#copper)" stroke="#b45309" stroke-width="2" />
+                    <rect x="35" y="60" width="70" height="80" fill="#78350f" opacity="0.6" /> <!-- Líquido -->
+                    <!-- Agitador (Off) -->
+                    <line x1="70" y1="30" x2="70" y2="130" stroke="#1e293b" stroke-width="2" />
+                    <line x1="50" y1="120" x2="90" y2="120" stroke="#1e293b" stroke-width="3" />
+                    <circle cx="70" cy="20" r="8" fill="#ef4444" /> <!-- Motor Off -->
+                    <!-- Dados FBE_02 -->
+                    <rect x="0" y="190" width="140" height="40" fill="#0f172a" rx="4" />
+                    <text x="5" y="205" class="data-label">Temp: <tspan class="data-value">62°C</tspan> (Mash)</text>
+                    <text x="5" y="220" class="data-label">Flow: <tspan class="data-value">44</tspan> | Agit: <tspan class="data-alert">OFF</tspan></text>
+                </g>
+
+
+                <!-- 03. TINA DE FILTRO (Centro) -->
+                <g transform="translate(370, 150)">
+                    <rect x="-10" y="-10" width="150" height="200" rx="8" fill="#1e293b" opacity="0.8"/>
+                    <text x="10" y="10" class="eq-title">03. TINA DE FILTRO</text>
+                    <!-- Tanque Largo -->
+                    <path d="M20 50 Q20 40 70 40 Q120 40 120 50 L120 150 Q120 160 70 160 Q20 160 20 150 Z" fill="url(#metal)" />
+                    <!-- Fundo Falso -->
+                    <line x1="25" y1="130" x2="115" y2="130" stroke="#1e293b" stroke-dasharray="2,2" stroke-width="2" />
+                    <rect x="25" y="80" width="90" height="50" fill="#d97706" opacity="0.5" /> <!-- Cama de grãos -->
+                    <circle cx="70" cy="20" r="8" fill="#22c55e" /> <!-- Motor On -->
+                    <line x1="70" y1="30" x2="70" y2="120" stroke="#1e293b" stroke-width="2" />
+                    <line x1="40" y1="110" x2="100" y2="110" stroke="#1e293b" stroke-width="2" />
+                    <!-- Dados FBE_03 -->
+                    <rect x="0" y="190" width="150" height="40" fill="#0f172a" rx="4" />
+                    <text x="5" y="205" class="data-label">Diff Press: <tspan class="data-warn">190</tspan></text>
+                    <text x="5" y="220" class="data-label">Pump: <tspan class="data-value">24</tspan> | Rake: 43</text>
+                </g>
+
+
+                <!-- 04. CALDEIRA DE FERVURA (Direita 1) -->
+                <g transform="translate(540, 150)">
+                    <rect x="-10" y="-10" width="140" height="200" rx="8" fill="#1e293b" opacity="0.8"/>
+                    <text x="10" y="10" class="eq-title">04. FERVURA</text>
+                    <!-- Vapor -->
+                    <g class="steam" transform="translate(70, 20)"><circle cx="0" cy="0" r="15" fill="#e2e8f0" opacity="0.5"/><circle cx="-10" cy="10" r="10" fill="#e2e8f0" opacity="0.5"/></g>
+                    <!-- Tanque -->
+                    <path d="M30 60 Q30 30 70 30 Q110 30 110 60 L110 150 Q110 160 70 160 Q30 160 30 150 Z" fill="url(#metal)" stroke="#475569" stroke-width="2"/>
+                    <rect x="35" y="70" width="70" height="70" fill="#dc2626" opacity="0.6" /> <!-- Fervura -->
+                    <!-- Chaminé -->
+                    <rect x="60" y="10" width="20" height="20" fill="#334155" />
+                    <!-- Aquecedor / Queimador -->
+                    <rect x="40" y="150" width="60" height="10" fill="#ea580c" />
+                    <!-- Dados FBE_04 -->
+                    <rect x="0" y="190" width="140" height="40" fill="#0f172a" rx="4" />
+                    <text x="5" y="205" class="data-label">Temp: <tspan class="data-value">84°C</tspan> (Boil)</text>
+                    <text x="5" y="220" class="data-label">Hops: <tspan class="data-value">Dosing</tspan> | Foam: 65</text>
+                </g>
+
+
+                <!-- 05. TROCADOR DE CALOR (Direita 2) -->
+                <g transform="translate(710, 250)">
+                    <rect x="-10" y="-10" width="110" height="100" rx="8" fill="#1e293b" opacity="0.8"/>
+                    <text x="5" y="10" class="eq-title">05. TROCADOR</text>
+                    <!-- Placas -->
+                    <rect x="20" y="25" width="50" height="40" fill="#64748b" />
+                    <line x1="30" y1="25" x2="30" y2="65" stroke="#1e293b" />
+                    <line x1="40" y1="25" x2="40" y2="65" stroke="#1e293b" />
+                    <line x1="50" y1="25" x2="50" y2="65" stroke="#1e293b" />
+                    <line x1="60" y1="25" x2="60" y2="65" stroke="#1e293b" />
+                    <!-- Dados FBE_05 -->
+                    <rect x="0" y="90" width="110" height="30" fill="#0f172a" rx="4" />
+                    <text x="5" y="102" class="data-label">In: 37°C Out: <tspan class="data-value">13°C</tspan></text>
+                    <text x="5" y="115" class="data-label">Glycol Válvula: 25%</text>
+                </g>
+
+
+                <!-- 06. FERMENTADOR A (Direita 3) -->
+                <g transform="translate(800, 100)">
+                    <rect x="-10" y="-10" width="110" height="210" rx="8" fill="#1e293b" opacity="0.8"/>
+                    <text x="10" y="10" class="eq-title">06. FERM. A</text>
+                    <!-- Tanque Cónico -->
+                    <path d="M20 40 Q20 30 50 30 Q80 30 80 40 L80 120 L50 160 L20 120 Z" fill="url(#metal-dark)" stroke="#64748b" stroke-width="2"/>
+                    <!-- Camisa Glicol OFF -->
+                    <path d="M25 50 L75 50 L75 100 L25 100 Z" fill="transparent" stroke="#ef4444" stroke-width="1" stroke-dasharray="2,2" />
+                    <!-- Dados FBE_06 -->
+                    <rect x="0" y="200" width="110" height="40" fill="#0f172a" rx="4" />
+                    <text x="5" y="215" class="data-label">Temp: <tspan class="data-value">17°C</tspan> | Brix: 25</text>
+                    <text x="5" y="230" class="data-label">Fase: <tspan class="data-value">LAG</tspan> (Jacket OFF)</text>
+                </g>
+
+
+                <!-- 07. FERMENTADOR B (Direita 4) -->
+                <g transform="translate(950, 100)">
+                    <rect x="-10" y="-10" width="110" height="210" rx="8" fill="#1e293b" opacity="0.8"/>
+                    <text x="10" y="10" class="eq-title">07. FERM. B</text>
+                    <!-- Tanque Maturação (Brite/Fundo arredondado) -->
+                    <path d="M20 40 Q20 30 50 30 Q80 30 80 40 L80 140 Q80 160 50 160 Q20 160 20 140 Z" fill="url(#metal-dark)" stroke="#64748b" stroke-width="2"/>
+                    <!-- Camisa Glicol ON -->
+                    <path d="M25 50 L75 50 L75 100 L25 100 Z" fill="#3b82f6" opacity="0.2" stroke="#3b82f6" stroke-width="1" stroke-dasharray="2,2" />
+                    <!-- Dados FBE_07 -->
+                    <rect x="0" y="200" width="110" height="40" fill="#0f172a" rx="4" />
+                    <text x="5" y="215" class="data-label">Temp: <tspan class="data-warn">22°C</tspan> | Brix: 24</text>
+                    <text x="5" y="230" class="data-label">Fase: <tspan class="data-warn">STAT</tspan> (Jacket ON)</text>
+                </g>
+
+
+                <!-- 09. SISTEMA CIP (Base Esquerda) -->
+                <g transform="translate(50, 520)">
+                    <rect x="-10" y="-10" width="280" height="150" rx="8" fill="#1e293b" opacity="0.8"/>
+                    <text x="10" y="10" class="eq-title">09. SISTEMA CIP</text>
+                    <!-- Tanques (Água, Soda, Ácido) -->
+                    <rect x="20" y="30" width="40" height="80" rx="4" fill="url(#metal)" />
+                    <rect x="25" y="60" width="30" height="40" fill="#3b82f6" opacity="0.5" />
+
+                    <rect x="80" y="30" width="40" height="80" rx="4" fill="url(#metal)" />
+                    <rect x="85" y="100" width="30" height="5" fill="#ef4444" opacity="0.5" /> <!-- Lvl 9 (Baixo) -->
+
+                    <rect x="140" y="30" width="40" height="80" rx="4" fill="url(#metal)" />
+                    <rect x="145" y="40" width="30" height="65" fill="#a855f7" opacity="0.5" /> <!-- Lvl 96 (Alto) -->
+
+                    <!-- Bomba CIP (ON) -->
+                    <circle cx="230" cy="100" r="15" fill="#334155" />
+                    <circle cx="230" cy="100" r="10" fill="#22c55e" class="spin-fast" stroke-dasharray="2,4" stroke="#fff" />
+                    <path d="M 230 85 L 230 50 L 280 50" stroke="#22c55e" stroke-width="3" fill="none" />
+
+                    <!-- Dados FBE_09 -->
+                    <rect x="0" y="140" width="280" height="30" fill="#0f172a" rx="4" />
+                    <text x="5" y="152" class="data-label">Bomba CIP: <tspan class="data-value">ON</tspan> | Vel. Fluxo: 5</text>
+                    <text x="5" y="165" class="data-label">Soda Lvl: <tspan class="data-alert">9%</tspan> | Ácido Lvl: 96% | Condutividade: 88</text>
+                </g>
+
+
+                <!-- 08. LINHA DE ENVASE (Base Centro) -->
+                <g transform="translate(360, 480)">
+                    <rect x="-10" y="-10" width="350" height="190" rx="8" fill="#1e293b" opacity="0.8" stroke="#ef4444" stroke-width="2" class="alert-indicator" style="animation-duration: 2s; fill: #1e293b;"/>
+                    <text x="10" y="10" class="eq-title">08. LINHA DE ENVASE (ERRO)</text>
+                    <!-- Esteira -->
+                    <rect x="20" y="100" width="300" height="10" fill="#334155" />
+                    <circle cx="40" cy="105" r="4" fill="#0f172a" /><circle cx="80" cy="105" r="4" fill="#0f172a" />
+                    <circle cx="120" cy="105" r="4" fill="#0f172a" /><circle cx="160" cy="105" r="4" fill="#0f172a" />
+                    <!-- Garrafas Paradas -->
+                    <path d="M 40 100 L 40 70 L 45 60 L 55 60 L 60 70 L 60 100 Z" fill="#92400e" /><rect x="42" y="80" width="16" height="10" fill="#fbbf24" />
+                    <path d="M 80 100 L 80 70 L 85 60 L 95 60 L 100 70 L 100 100 Z" fill="#92400e" /><rect x="82" y="80" width="16" height="10" fill="#fbbf24" />
+                    <path d="M 120 100 L 120 70 L 125 60 L 135 60 L 140 70 L 140 100 Z" fill="#92400e" /><rect x="122" y="80" width="16" height="10" fill="#fbbf24" />
+
+                    <!-- Máquina Arrolhadora (Jam!) -->
+                    <rect x="110" y="20" width="40" height="30" fill="#475569" />
+                    <rect x="125" y="50" width="10" height="15" fill="#ef4444" class="alert-indicator" />
+                    <text x="160" y="40" class="data-alert alert-indicator" font-size="14">CAPPER JAM!</text>
+
+                    <!-- Dados FBE_08 -->
+                    <rect x="0" y="180" width="350" height="30" fill="#0f172a" rx="4" />
+                    <text x="5" y="192" class="data-label">Velocidade: <tspan class="data-alert">0</tspan> | Fill Head: IDLE</text>
+                    <text x="5" y="205" class="data-label">Capper Jam: <tspan class="data-alert">TRUE</tspan> | IR Detect: TRUE</text>
+                </g>
+
+
+                <!-- 10. FROTA AMR (Base Direita) -->
+                <g transform="translate(750, 520)">
+                    <rect x="-10" y="-10" width="280" height="150" rx="8" fill="#1e293b" opacity="0.8"/>
+                    <text x="10" y="10" class="eq-title">10. FROTA AMR (LOGÍSTICA)</text>
+                    <!-- Caminho Logístico -->
+                    <path d="M 20 60 L 250 60" stroke="#334155" stroke-width="20" stroke-linecap="round" />
+                    <path d="M 20 60 L 250 60" stroke="#cbd5e1" stroke-width="2" stroke-dasharray="10,10" />
+
+                    <!-- Robot AMR parado/recalculando -->
+                    <g transform="translate(100, 45)">
+                        <!-- Feixe Lidar (recalculando) -->
+                        <path d="M 20 15 L -20 -10 L 60 -10 Z" fill="#fbbf24" opacity="0.2" class="alert-indicator" />
+                        <rect x="0" y="5" width="40" height="20" rx="4" fill="#3b82f6" />
+                        <rect x="5" y="25" width="30" height="5" fill="#0f172a" />
+                        <circle cx="20" cy="5" r="4" fill="#0f172a" />
+                        <!-- Carga -->
+                        <rect x="5" y="-15" width="30" height="20" fill="#d97706" />
+                        <text x="15" y="0" font-size="8" fill="#fff">15kg</text>
+                    </g>
+
+                    <!-- Base de Carregamento -->
+                    <rect x="230" y="40" width="30" height="40" fill="#475569" />
+                    <path d="M 240 50 L 250 60 L 245 60 L 255 70" stroke="#eab308" stroke-width="2" fill="none" />
+
+                    <!-- Dados FBE_10 -->
+                    <rect x="0" y="140" width="280" height="30" fill="#0f172a" rx="4" />
+                    <text x="5" y="152" class="data-label">Status AMR 1: <tspan class="data-warn">RECALCULANDO_ROTA</tspan></text>
+                    <text x="5" y="165" class="data-label">Bateria: <tspan class="data-alert">9%</tspan> | Payload: 15kg | Loc: {0,0}</text>
+                </g>
+
+            </svg>
+        </div>
+
+        <!-- Rodapé Status Geral -->
+        <div class="mt-6 bg-slate-900 border border-slate-700 p-4 rounded-xl flex justify-between items-center text-sm">
+            <div class="flex items-center gap-3">
+                <div class="w-3 h-3 rounded-full bg-red-500 alert-indicator"></div>
+                <span class="text-slate-300 font-bold">ALERTA DE SISTEMA: Linha de Envase parada (Arrolhadora encravada). Produção suspensa.</span>
+            </div>
+            <span class="text-slate-500 font-mono">Última Atualização: Agora | Modo: Automático</span>
+        </div>
+    </div>
+
+</body>
+</html>

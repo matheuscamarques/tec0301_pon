@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Desenho SVG - Tina de Filtro</title>
+    <style>
+        @keyframes rotate-rakes {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .rake-system {
+            transform-origin: 200px 200px;
+            animation: rotate-rakes 10s linear infinite;
+        }
+        .gauge-needle {
+            transform-origin: 140px 240px;
+            transition: transform 1s ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="bg-white p-8 rounded-2xl shadow-xl max-w-2xl w-full">
+        <h1 class="text-2xl font-bold text-slate-800 mb-6 text-center">Tina de Filtro (Lauter Tun)</h1>
+
+        <div class="relative flex justify-center">
+            <!-- SVG da Tina de Filtro -->
+            <svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+                <!-- Definições de Gradientes -->
+                <defs>
+                    <linearGradient id="steel" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" style="stop-color:#94a3b8;stop-opacity:1" />
+                        <stop offset="30%" style="stop-color:#f1f5f9;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#475569;stop-opacity:1" />
+                    </linearGradient>
+                    <pattern id="false-bottom" x="0" y="0" width="10" height="4" patternUnits="userSpaceOnUse">
+                        <line x1="0" y1="2" x2="8" y2="2" stroke="#1e293b" stroke-width="1" stroke-dasharray="1,1"/>
+                    </pattern>
+                </defs>
+
+                <!-- Corpo da Tina (Mais larga e baixa que a mostura) -->
+                <rect x="70" y="120" width="260" height="200" rx="5" fill="url(#steel)" stroke="#334155" stroke-width="2" />
+
+                <!-- Tampa com Motor Superior -->
+                <path d="M70 130 Q70 110 200 110 Q330 110 330 130 Z" fill="#64748b" stroke="#334155" stroke-width="2" />
+                <!-- Motor dos Ancinhos -->
+                <rect x="180" y="80" width="40" height="30" rx="2" fill="#1e293b" />
+                <rect x="185" y="70" width="30" height="10" fill="#475569" />
+
+                <!-- Janela de Inspeção (Sight Glass) -->
+                <rect x="180" y="140" width="40" height="60" rx="20" fill="#94a3b8" opacity="0.3" stroke="#334155" stroke-width="1" />
+
+                <!-- Sistema de Ancinhos (Interno - Visualização Esquemática) -->
+                <g class="rake-system" opacity="0.4">
+                    <line x1="200" y1="110" x2="200" y2="280" stroke="#1e293b" stroke-width="4" /> <!-- Eixo Central -->
+                    <line x1="100" y1="200" x2="300" y2="200" stroke="#1e293b" stroke-width="3" /> <!-- Braço Transversal -->
+                    <!-- Lâminas/Ancinhos -->
+                    <line x1="120" y1="200" x2="120" y2="250" stroke="#1e293b" stroke-width="2" />
+                    <line x1="160" y1="200" x2="160" y2="250" stroke="#1e293b" stroke-width="2" />
+                    <line x1="240" y1="200" x2="240" y2="250" stroke="#1e293b" stroke-width="2" />
+                    <line x1="280" y1="200" x2="280" y2="250" stroke="#1e293b" stroke-width="2" />
+                </g>
+
+                <!-- Porta de Visita Lateral (Spent Grain Manway) -->
+                <rect x="280" y="240" width="50" height="60" rx="5" fill="#475569" stroke="#1e293b" stroke-width="2" />
+                <circle cx="290" cy="270" r="3" fill="#cbd5e1" /> <!-- Trinco -->
+
+                <!-- Fundo Falso (Representação) -->
+                <rect x="75" y="300" width="250" height="5" fill="url(#false-bottom)" />
+                <line x1="70" y1="305" x2="330" y2="305" stroke="#334155" stroke-width="1" />
+
+                <!-- Termómetro (Gauge) -->
+                <circle cx="140" cy="240" r="20" fill="white" stroke="#334155" stroke-width="2" />
+                <line class="gauge-needle" x1="140" y1="240" x2="152" y2="228" stroke="#ef4444" stroke-width="2" />
+
+                <!-- Válvula de Saída do Mosto Clarificado -->
+                <g transform="translate(200, 320)">
+                    <rect x="-10" y="0" width="20" height="30" fill="#475569" />
+                    <path d="M-15 30 L15 30 L10 40 L-10 40 Z" fill="#64748b" />
+                </g>
+
+                <!-- Pés da Tina -->
+                <rect x="90" y="320" width="12" height="30" fill="#334155" />
+                <rect x="298" y="320" width="12" height="30" fill="#334155" />
+
+                <!-- Chão / Sombra -->
+                <ellipse cx="200" cy="355" rx="140" ry="8" fill="#cbd5e1" opacity="0.4" />
+            </svg>
+        </div>
+
+        <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-slate-600">
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-slate-800 rounded mt-1"></div>
+                <p><strong>Motor Superior:</strong> Aciona o sistema de ancinhos para revolver o leito de grãos durante a lavagem.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-slate-500 rounded mt-1"></div>
+                <p><strong>Porta Lateral:</strong> Escotilha projetada para a remoção manual ou automatizada do bagaço de malte.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-slate-300 rounded mt-1"></div>
+                <p><strong>Fundo Falso:</strong> Placas fresadas que permitem a passagem do mosto enquanto retêm as cascas.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-blue-200 rounded mt-1"></div>
+                <p><strong>Geometria Larga:</strong> O design favorece uma camada de grãos menos espessa, otimizando a clarificação.</p>
+            </div>
+        </div>
+
+        <div class="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center">
+            <span class="text-xs font-mono text-slate-400">ESQUEMÁTICO V1.2</span>
+            <button onclick="window.print()" class="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm">
+                Exportar Especificações
+            </button>
+        </div>
+    </div>
+
+</body>
+</html>

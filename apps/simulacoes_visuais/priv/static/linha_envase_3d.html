@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <title>Digital Twin 3D - Linha de Envase</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0f172a; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+
+        #hud {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: flex; flex-direction: column;
+            justify-content: space-between; padding: 1.5rem; box-sizing: border-box;
+        }
+        .panel {
+            background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(8px);
+            border: 1px solid rgba(71, 85, 105, 0.8); border-radius: 12px;
+            padding: 1rem; pointer-events: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            transition: all 0.3s ease;
+        }
+        .data-row { display: flex; justify-content: space-between; font-family: monospace; font-size: 0.85rem; margin-top: 0.5rem; color: #cbd5e1; border-bottom: 1px solid #334155; padding-bottom: 0.2rem;}
+        .val { color: #10b981; font-weight: bold; }
+        .val-warn { color: #f59e0b; font-weight: bold; }
+        .val-alert { color: #ef4444; font-weight: bold; animation: pulse-text 1s infinite; }
+        .val-blue { color: #3b82f6; font-weight: bold; }
+        .val-neutral { color: #94a3b8; font-weight: bold; }
+
+        @keyframes pulse-text {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="hud">
+        <div class="flex justify-between items-start">
+            <div class="panel max-w-sm border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.3)]">
+                <h1 class="text-2xl font-bold text-white flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
+                    Linha de Envase 3D
+                </h1>
+                <p class="text-slate-400 text-xs mt-1">Foco Detalhado (FBE_08). Clique no equipamento para ler a telemetria.</p>
+            </div>
+
+            <div class="panel w-64 border-red-500/50">
+                <h2 class="text-white font-bold text-sm mb-2 border-b border-slate-600 pb-1">STATUS DO ENVASE</h2>
+                <div class="data-row"><span>Velocidade:</span> <span class="val-alert"><span id="hud-speed">0</span> bpm</span></div>
+                <div class="data-row"><span>Arrolhadora (Capper):</span> <span class="val-alert" id="hud-jam">JAMMED</span></div>
+                <div class="data-row border-0"><span>Enchimento:</span> <span class="val-warn">FILLING (Preso)</span></div>
+            </div>
+        </div>
+
+        <div class="flex justify-end items-end">
+            <div id="details-panel" class="panel w-80" style="opacity: 0.5;">
+                <h2 class="text-white font-bold text-sm mb-2 border-b border-slate-600 pb-1 flex justify-between">
+                    <span id="eq-name">Inspecionar Equipamento</span>
+                    <span id="eq-status" class="text-xs text-slate-400">---</span>
+                </h2>
+                <div id="eq-data-container">
+                    <div class="text-slate-400 text-xs italic py-4 text-center">Clique na linha de envase para ver os dados.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script>
+        (function() {
+            var FBE_ID = 8;
+            var HUD_MAP = { "conveyor_speed": "hud-speed", "capper_jam_sens": "hud-jam" };
+            window.__fbeFacts = {};
+            function escapeHtml(s) { if (!s) return ""; var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+            window.addEventListener("message", function(e) {
+                if (e.origin !== window.location.origin || !e.data || e.data.type !== "fbe_facts" || e.data.fbeId !== FBE_ID) return;
+                var facts = e.data.facts || [];
+                window.__fbeFacts = {};
+                for (var j = 0; j < facts.length; j++) {
+                    window.__fbeFacts[facts[j].label] = facts[j].value;
+                    var id = HUD_MAP[facts[j].label];
+                    if (id) { var el = document.getElementById(id); if (el) el.textContent = facts[j].value; }
+                }
+                var c = document.getElementById("eq-data-container");
+                if (c) {
+                    var html = "";
+                    for (var i = 0; i < facts.length; i++) {
+                        html += "<div class=\"data-row\"><span>" + escapeHtml(facts[i].label) + "</span> <span class=\"val\">" + escapeHtml(facts[i].value) + "</span></div>";
+                    }
+                    c.innerHTML = html || "<div class=\"text-slate-400 text-xs italic py-4 text-center\">Dados em tempo real (Smart Brewery).</div>";
+                }
+            });
+        })();
+        window.onload = function () {
+            const container = document.getElementById('canvas-container');
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f172a);
+            scene.fog = new THREE.FogExp2(0x0f172a, 0.012);
+
+            const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 20, 50);
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 - 0.01;
+            controls.target.set(0, 5, 0);
+
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+            let hoveredObject = null;
+            let selectedObject = null;
+            const interactables = [];
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(10, 40, 30);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            scene.add(dirLight);
+            const blueLight = new THREE.PointLight(0x3b82f6, 0.8, 60);
+            blueLight.position.set(-20, 20, 20);
+            scene.add(blueLight);
+            const alarmLight = new THREE.PointLight(0xef4444, 2.0, 30);
+            alarmLight.position.set(10, 15, 0);
+            scene.add(alarmLight);
+
+            const matFloor = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8, metalness: 0.2 });
+            const matSteel = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.35, metalness: 0.85 });
+            const matDarkSteel = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6, metalness: 0.4 });
+            const matConveyorBelt = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9, metalness: 0.1 });
+            var matGlassAmber;
+            if (THREE.MeshPhysicalMaterial) {
+                matGlassAmber = new THREE.MeshPhysicalMaterial({ color: 0x92400e, transmission: 0.8, opacity: 1, roughness: 0.1, metalness: 0.1, ior: 1.5, thickness: 0.5 });
+            } else {
+                matGlassAmber = new THREE.MeshStandardMaterial({ color: 0x92400e, transparent: true, opacity: 0.8, roughness: 0.1, metalness: 0.1 });
+            }
+            const matGold = new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.3, metalness: 0.8 });
+            const matAlarm = new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xef4444, emissiveIntensity: 1 });
+
+            const floor = new THREE.Mesh(new THREE.BoxGeometry(60, 1, 20), matFloor);
+            floor.position.y = -0.5;
+            floor.receiveShadow = true;
+            scene.add(floor);
+            const gridHelper = new THREE.GridHelper(60, 30, 0x334155, 0x334155);
+            scene.add(gridHelper);
+
+            const envaseGroup = new THREE.Group();
+            scene.add(envaseGroup);
+
+            var beltLength = 40;
+            var conveyorFrame = new THREE.Mesh(new THREE.BoxGeometry(beltLength, 1.5, 3.5), matDarkSteel);
+            conveyorFrame.position.y = 4;
+            conveyorFrame.castShadow = true;
+            conveyorFrame.receiveShadow = true;
+            envaseGroup.add(conveyorFrame);
+            var belt = new THREE.Mesh(new THREE.BoxGeometry(beltLength + 0.2, 0.2, 3), matConveyorBelt);
+            belt.position.y = 4.85;
+            belt.receiveShadow = true;
+            belt.userData.beltOffset = 0;
+            envaseGroup.add(belt);
+            window.envaseBeltRef = belt;
+
+            var legGeo = new THREE.CylinderGeometry(0.3, 0.3, 4, 16);
+            for (var x = -18; x <= 18; x += 9) {
+                var legFront = new THREE.Mesh(legGeo, matDarkSteel);
+                legFront.position.set(x, 2, 1.5);
+                legFront.castShadow = true;
+                var legBack = new THREE.Mesh(legGeo, matDarkSteel);
+                legBack.position.set(x, 2, -1.5);
+                legBack.castShadow = true;
+                envaseGroup.add(legFront, legBack);
+            }
+
+            var railGeo = new THREE.CylinderGeometry(0.1, 0.1, beltLength, 16);
+            var railFront = new THREE.Mesh(railGeo, matSteel);
+            railFront.rotation.z = Math.PI / 2;
+            railFront.position.set(0, 5.2, 1.2);
+            var railBack = new THREE.Mesh(railGeo, matSteel);
+            railBack.rotation.z = Math.PI / 2;
+            railBack.position.set(0, 5.2, -1.2);
+            envaseGroup.add(railFront, railBack);
+
+            var fillerGroup = new THREE.Group();
+            fillerGroup.position.set(-8, 5, 0);
+            var fillerBody = new THREE.Mesh(new THREE.BoxGeometry(6, 6, 5), matSteel);
+            fillerBody.position.y = 3;
+            fillerBody.castShadow = true;
+            fillerGroup.add(fillerBody);
+            var fillerTop = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 3, 2, 32), matSteel);
+            fillerTop.position.y = 7;
+            fillerTop.castShadow = true;
+            fillerGroup.add(fillerTop);
+            var hmiScreen = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1, 0.1), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+            hmiScreen.position.set(0, 4, 2.55);
+            var hmiError = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.8), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+            hmiError.position.set(0, 4, 2.61);
+            fillerGroup.add(hmiScreen, hmiError);
+            for (var i = -2; i <= 2; i += 1.5) {
+                var nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.1, 2, 16), matSteel);
+                nozzle.position.set(i, -0.5, 0);
+                nozzle.castShadow = true;
+                fillerGroup.add(nozzle);
+            }
+            envaseGroup.add(fillerGroup);
+
+            var capperGroup = new THREE.Group();
+            capperGroup.position.set(8, 5, 0);
+            var capperBody = new THREE.Mesh(new THREE.BoxGeometry(5, 5, 4.5), matSteel);
+            capperBody.position.y = 2.5;
+            capperBody.castShadow = true;
+            capperGroup.add(capperBody);
+            for (var i = -1; i <= 1; i += 2) {
+                var head = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.5, 16), matDarkSteel);
+                head.position.set(i, 0, 0);
+                head.castShadow = true;
+                capperGroup.add(head);
+            }
+            var sirenBase = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.2, 16), matDarkSteel);
+            sirenBase.position.y = 5.1;
+            capperGroup.add(sirenBase);
+            var sirenLight = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.6, 16), matAlarm);
+            sirenLight.position.y = 5.5;
+            capperGroup.add(sirenLight);
+            var sensorBox1 = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), matDarkSteel);
+            sensorBox1.position.set(-3, 1, 1.5);
+            var sensorLED = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+            sensorLED.position.set(-3, 1.25, 1.5);
+            capperGroup.add(sensorBox1, sensorLED);
+            envaseGroup.add(capperGroup);
+
+            function createBottle(hasCap) {
+                var bGroup = new THREE.Group();
+                var bBody = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 1.2, 16), matGlassAmber);
+                bBody.position.y = 0.6;
+                bBody.castShadow = true;
+                var bNeck1 = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.35, 0.5, 16), matGlassAmber);
+                bNeck1.position.y = 1.45;
+                var bNeck2 = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.4, 16), matGlassAmber);
+                bNeck2.position.y = 1.9;
+                bGroup.add(bBody, bNeck1, bNeck2);
+                var label = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.6, 16), matGold);
+                label.position.y = 0.6;
+                bGroup.add(label);
+                if (hasCap) {
+                    var cap = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.1, 16), matGold);
+                    cap.position.y = 2.15;
+                    bGroup.add(cap);
+                }
+                return bGroup;
+            }
+
+            for (var i = -9.5; i <= -6.5; i += 1.5) {
+                var bottle = createBottle(false);
+                bottle.position.set(i, 4.95, 0);
+                envaseGroup.add(bottle);
+            }
+            var jamStartX = 4;
+            for (var i = 0; i < 8; i++) {
+                var bottle = createBottle(false);
+                var xOffset = jamStartX + (i * 0.45) + (Math.random() * 0.1);
+                var zOffset = (Math.random() - 0.5) * 0.8;
+                bottle.position.set(xOffset, 4.95, zOffset);
+                envaseGroup.add(bottle);
+            }
+            var stuckBottle = createBottle(true);
+            stuckBottle.position.set(8, 4.95, 0);
+            stuckBottle.rotation.z = Math.PI / 8;
+            stuckBottle.rotation.x = Math.PI / 12;
+            envaseGroup.add(stuckBottle);
+            for (var i = -18; i <= -12; i += 1.5) {
+                var bottle = createBottle(false);
+                bottle.position.set(i, 4.95, 0);
+                envaseGroup.add(bottle);
+            }
+            for (var i = 12; i <= 18; i += 2) {
+                var bottle = createBottle(true);
+                bottle.position.set(i, 4.95, 0);
+                envaseGroup.add(bottle);
+            }
+
+            var hitBoxGeo = new THREE.BoxGeometry(42, 12, 6);
+            var hitBoxMat = new THREE.MeshBasicMaterial({ visible: false });
+            var envaseHitBox = new THREE.Mesh(hitBoxGeo, hitBoxMat);
+            envaseHitBox.position.y = 5;
+            envaseHitBox.userData = {
+                id: "fbe08",
+                name: "Linha de Envase",
+                data: {
+                    "IR Bottle Detect": "FALSE",
+                    "Conveyor Speed": "0 rpm",
+                    "Fill Head Status": "FILLING",
+                    "Nível de Líquido": "OK",
+                    "Capper Jam Sensor": "TRUE",
+                    "Stop Sensor": "TRUE"
+                },
+                isHighlighted: false
+            };
+            interactables.push(envaseHitBox);
+            scene.add(envaseHitBox);
+
+            var outlineGeo = new THREE.EdgesGeometry(hitBoxGeo);
+            var outlineMat = new THREE.LineBasicMaterial({ color: 0xef4444, linewidth: 2, transparent: true, opacity: 0 });
+            var outline = new THREE.LineSegments(outlineGeo, outlineMat);
+            outline.position.y = 5;
+            scene.add(outline);
+
+            function safeId(key) { return key.replace(/[^a-zA-Z0-9]/g, ''); }
+
+            function onMouseMove(event) {
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            }
+
+            function clearDetailsPanel() {
+                var panel = document.getElementById('details-panel');
+                var eqName = document.getElementById('eq-name');
+                var eqStatus = document.getElementById('eq-status');
+                var eqData = document.getElementById('eq-data-container');
+                if (panel) panel.style.opacity = '0.5';
+                if (eqName) eqName.innerText = "Inspecionar Equipamento";
+                if (eqStatus) { eqStatus.innerText = "---"; eqStatus.className = "text-xs text-slate-400"; }
+                if (eqData) eqData.innerHTML = '<div class="text-slate-400 text-xs italic py-4 text-center">Clique na linha de envase para ver os dados.</div>';
+            }
+
+            function onClick(event) {
+                if (hoveredObject) {
+                    selectedObject = hoveredObject;
+                    updateHUDDetails(selectedObject.userData);
+                } else {
+                    selectedObject = null;
+                    outline.material.opacity = 0;
+                    clearDetailsPanel();
+                }
+            }
+
+            window.addEventListener('mousemove', onMouseMove, false);
+            window.addEventListener('click', onClick, false);
+
+            function updateHUDDetails(userData) {
+                var panel = document.getElementById('details-panel');
+                var eqName = document.getElementById('eq-name');
+                var eqStatus = document.getElementById('eq-status');
+                var eqData = document.getElementById('eq-data-container');
+                if (!userData || !eqName || !eqStatus || !eqData) return;
+                if (panel) panel.style.opacity = '1';
+                eqName.innerText = userData.name;
+                var html = '';
+                for (var key in userData.data) {
+                    if (!userData.data.hasOwnProperty(key)) continue;
+                    var value = userData.data[key];
+                    var valClass = "val";
+                    if (value === "TRUE" || value === "FALSE" || value === "0 rpm") valClass = "val-alert";
+                    if (value === "FILLING") valClass = "val-warn";
+                    if (value === "OK") valClass = "val";
+                    html += '<div class="data-row"><span>' + key + ':</span> <span class="' + valClass + '" id="dyn-' + safeId(key) + '">' + value + '</span></div>';
+                }
+                eqStatus.innerText = "ENCRAVADA (ALARM)";
+                eqStatus.className = "text-xs text-red-500 font-bold animate-pulse";
+                eqData.innerHTML = html;
+            }
+
+            var clock = new THREE.Clock();
+
+            function animate() {
+                requestAnimationFrame(animate);
+                controls.update();
+                var time = clock.getElapsedTime();
+
+                raycaster.setFromCamera(mouse, camera);
+                var intersects = raycaster.intersectObjects(interactables);
+                if (intersects.length > 0) {
+                    if (hoveredObject !== intersects[0].object) {
+                        hoveredObject = intersects[0].object;
+                        document.body.style.cursor = 'pointer';
+                        if (!selectedObject) outline.material.opacity = 0.3;
+                    }
+                } else {
+                    hoveredObject = null;
+                    document.body.style.cursor = 'default';
+                    if (!selectedObject) outline.material.opacity = 0;
+                }
+                if (selectedObject) outline.material.opacity = 0.8;
+
+                var jam = window.__fbeFacts && (window.__fbeFacts.capper_jam_sens === "true" || window.__fbeFacts.capper_jam_sens === true);
+                var flash = jam && Math.sin(time * 8) > 0;
+                matAlarm.emissiveIntensity = flash ? 1.5 : 0.2;
+                alarmLight.intensity = flash ? 3.0 : 0.0;
+
+                var speedVal = window.__fbeFacts && parseFloat(window.__fbeFacts.conveyor_speed, 10);
+                var convSpeed = (isNaN(speedVal) ? 0 : Math.max(0, Math.min(100, speedVal))) / 100;
+                if (window.envaseBeltRef) {
+                    window.envaseBeltRef.userData.beltOffset = (window.envaseBeltRef.userData.beltOffset || 0) + 0.05 * convSpeed;
+                    if (window.envaseBeltRef.userData.beltOffset > 4) window.envaseBeltRef.userData.beltOffset -= 4;
+                    window.envaseBeltRef.position.x = (window.envaseBeltRef.userData.beltOffset % 4) - 2;
+                }
+
+                renderer.render(scene, camera);
+            }
+
+            animate();
+
+            window.addEventListener('resize', function () {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }, false);
+
+            setInterval(function () {
+                if (selectedObject) {
+                    var elSpeed = document.getElementById('dyn-ConveyorSpeed');
+                    if (elSpeed) elSpeed.innerText = "0 rpm";
+                }
+            }, 2000);
+        };
+    </script>
+</body>
+</html>

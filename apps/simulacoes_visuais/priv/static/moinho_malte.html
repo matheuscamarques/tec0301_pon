@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Desenho SVG - Moinho de Malte</title>
+    <style>
+        @keyframes rotate-crank {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        @keyframes vibrate {
+            0% { transform: translate(0, 0); }
+            25% { transform: translate(1px, -1px); }
+            50% { transform: translate(-1px, 1px); }
+            75% { transform: translate(1px, 1px); }
+            100% { transform: translate(0, 0); }
+        }
+        .crank-handle {
+            transform-origin: 260px 220px;
+            animation: rotate-crank 4s linear infinite;
+        }
+        .mill-body {
+            animation: vibrate 0.2s linear infinite;
+            animation-play-state: running;
+        }
+        .grain {
+            fill: #d2b48c;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="bg-white p-8 rounded-2xl shadow-xl max-w-2xl w-full">
+        <h1 class="text-2xl font-bold text-slate-800 mb-6 text-center">Moinho de Malte Artesanal</h1>
+
+        <div class="relative flex justify-center">
+            <!-- SVG do Moinho -->
+            <svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+                <!-- Definições de Gradientes -->
+                <defs>
+                    <linearGradient id="metal" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" style="stop-color:#94a3b8;stop-opacity:1" />
+                        <stop offset="50%" style="stop-color:#cbd5e1;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#94a3b8;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="wood" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#78350f;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#451a03;stop-opacity:1" />
+                    </linearGradient>
+                </defs>
+
+                <!-- Base de Madeira -->
+                <rect x="50" y="320" width="300" height="30" rx="5" fill="url(#wood)" />
+                <rect x="80" y="310" width="240" height="10" fill="#331800" opacity="0.3" />
+
+                <!-- Grãos Caindo (Animação simples via SVG se desejado, aqui estáticos) -->
+                <circle class="grain" cx="190" cy="70" r="3" />
+                <circle class="grain" cx="210" cy="65" r="3" />
+                <circle class="grain" cx="200" cy="85" r="3" />
+
+                <!-- Funil (Hopper) -->
+                <path d="M100 50 L300 50 L250 180 L150 180 Z" fill="url(#metal)" stroke="#475569" stroke-width="2" />
+                <path d="M100 50 L150 180" stroke="#475569" stroke-width="1" opacity="0.5" />
+                <path d="M300 50 L250 180" stroke="#475569" stroke-width="1" opacity="0.5" />
+
+                <!-- Corpo Principal do Moinho -->
+                <g class="mill-body">
+                    <rect x="140" y="180" width="120" height="100" rx="2" fill="#64748b" stroke="#334155" stroke-width="2" />
+
+                    <!-- Janela de visualização dos rolos -->
+                    <rect x="155" y="200" width="90" height="60" fill="#1e293b" rx="2" />
+
+                    <!-- Rolos Internos -->
+                    <circle cx="180" cy="230" r="18" fill="#94a3b8" stroke="#475569" stroke-width="1" />
+                    <circle cx="220" cy="230" r="18" fill="#94a3b8" stroke="#475569" stroke-width="1" />
+
+                    <!-- Textura dos rolos (ranhuras) -->
+                    <line x1="165" y1="230" x2="195" y2="230" stroke="#334155" stroke-width="1" />
+                    <line x1="205" y1="230" x2="235" y2="230" stroke="#334155" stroke-width="1" />
+
+                    <!-- Parafusos de ajuste -->
+                    <circle cx="148" cy="190" r="3" fill="#cbd5e1" />
+                    <circle cx="252" cy="190" r="3" fill="#cbd5e1" />
+                    <circle cx="148" cy="270" r="3" fill="#cbd5e1" />
+                    <circle cx="252" cy="270" r="3" fill="#cbd5e1" />
+                </g>
+
+                <!-- Saída de Malte Moído -->
+                <path d="M170 280 L230 280 L215 310 L185 310 Z" fill="#94a3b8" />
+                <circle class="grain" cx="195" cy="315" r="2" />
+                <circle class="grain" cx="205" cy="315" r="2" />
+                <circle class="grain" cx="200" cy="325" r="2" />
+
+                <!-- Manivela -->
+                <g class="crank-handle">
+                    <!-- Eixo -->
+                    <circle cx="260" cy="220" r="6" fill="#334155" />
+                    <!-- Braço da manivela -->
+                    <rect x="255" y="140" width="10" height="80" rx="5" fill="#475569" />
+                    <!-- Pega da manivela (Madeira) -->
+                    <circle cx="260" cy="140" r="12" fill="url(#wood)" stroke="#451a03" stroke-width="1" />
+                </g>
+            </svg>
+        </div>
+
+        <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-slate-600">
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-slate-400 rounded mt-1"></div>
+                <p><strong>Corpo de Aço:</strong> Estrutura robusta para suportar a pressão da moagem.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-amber-200 rounded mt-1"></div>
+                <p><strong>Funil de Alumínio:</strong> Capacidade para até 3kg de malte em grão.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-slate-800 rounded mt-1"></div>
+                <p><strong>Rolos Ajustáveis:</strong> Permite definir a folga para diferentes tipos de grão.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-amber-900 rounded mt-1"></div>
+                <p><strong>Manivela Manual:</strong> Pode ser removida para acoplamento de berbequim.</p>
+            </div>
+        </div>
+
+        <div class="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center">
+            <span class="text-xs font-mono text-slate-400">ESQUEMÁTICO V1.0</span>
+            <button onclick="window.print()" class="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm">
+                Guardar como PDF
+            </button>
+        </div>
+    </div>
+
+</body>
+</html>

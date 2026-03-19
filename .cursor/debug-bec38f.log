@@ -1,0 +1,8 @@
+{"data":{"hypertables":[]},"hypothesisId":"H1_H2_H4","location":"migration up","message":"hypertables","sessionId":"bec38f","timestamp":1773906331123}
+{"data":{"current_database":"simulacoes_visuais_dev","current_schema":"public"},"hypothesisId":"H3","location":"migration up","message":"session","sessionId":"bec38f","timestamp":1773906331135}
+{"data":{"tables":[{"schemaname":"public","tablename":"telemetry_events"}]},"hypothesisId":"H2_H4","location":"migration up","message":"pg_tables_telemetry","sessionId":"bec38f","timestamp":1773906331139}
+{"data":{"hypertables_now":[]},"hypothesisId":"post_fix","location":"migration up","message":"after_create_hypertable","sessionId":"bec38f","timestamp":1773906331144}
+{"data":{"hypertables":[]},"hypothesisId":"H1_H2_H4","location":"migration up","message":"hypertables","sessionId":"bec38f","timestamp":1773906407968}
+{"data":{"current_database":"simulacoes_visuais_dev","current_schema":"public"},"hypothesisId":"H3","location":"migration up","message":"session","sessionId":"bec38f","timestamp":1773906407981}
+{"data":{"tables":[{"schemaname":"public","tablename":"telemetry_events"}]},"hypothesisId":"H2_H4","location":"migration up","message":"pg_tables_telemetry","sessionId":"bec38f","timestamp":1773906407984}
+{"data":{"hypertables_now":[]},"hypothesisId":"post_fix","location":"migration up","message":"after_create_hypertable","sessionId":"bec38f","timestamp":1773906407989}

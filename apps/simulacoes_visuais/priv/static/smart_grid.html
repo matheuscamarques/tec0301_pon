@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Desenho SVG - Smart Grid</title>
+    <style>
+        @keyframes rotate-turbine {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        @keyframes power-flow {
+            0% { stroke-dashoffset: 100; }
+            100% { stroke-dashoffset: 0; }
+        }
+        @keyframes pulse-data {
+            0% { opacity: 0.3; }
+            50% { opacity: 1; }
+            100% { opacity: 0.3; }
+        }
+        .turbine-blades {
+            transform-origin: 60px 100px;
+            animation: rotate-turbine 3s linear infinite;
+        }
+        .power-line {
+            stroke-dasharray: 10, 5;
+            animation: power-flow 2s linear infinite;
+        }
+        .data-node {
+            animation: pulse-data 2s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="bg-white p-8 rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-100">
+        <h1 class="text-2xl font-bold text-slate-800 mb-2 text-center">Infraestrutura de Smart Grid</h1>
+        <p class="text-slate-500 text-sm text-center mb-6 font-medium">Rede Elétrica Bidirecional e Digitalizada</p>
+
+        <div class="relative flex justify-center bg-sky-50 rounded-xl p-4 overflow-hidden border border-sky-100">
+            <!-- SVG da Smart Grid -->
+            <svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+                <!-- Definições de Gradientes -->
+                <defs>
+                    <linearGradient id="sun-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#fbbf24;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#f59e0b;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="grid-sky" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#e0f2fe;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#bae6fd;stop-opacity:1" />
+                    </linearGradient>
+                </defs>
+
+                <!-- Fundo/Cenário -->
+                <rect width="400" height="400" fill="url(#grid-sky)" rx="10" />
+                <path d="M0 350 Q100 330 200 350 T400 350 L400 400 L0 400 Z" fill="#10b981" opacity="0.3" />
+
+                <!-- 1. Geração Renovável: Eólica -->
+                <g transform="translate(40, 50)">
+                    <line x1="20" y1="120" x2="20" y2="50" stroke="#64748b" stroke-width="4" stroke-linecap="round" />
+                    <g class="turbine-blades" transform="translate(-40, -50)">
+                        <path d="M60 100 L60 70 L65 70 Z" fill="#94a3b8" />
+                        <path d="M60 100 L85 115 L88 110 Z" fill="#94a3b8" />
+                        <path d="M60 100 L35 115 L32 110 Z" fill="#94a3b8" />
+                    </g>
+                </g>
+
+                <!-- 2. Geração Renovável: Solar -->
+                <g transform="translate(280, 60)">
+                    <rect x="0" y="40" width="60" height="40" rx="2" fill="#1e3a8a" stroke="#1e293b" />
+                    <line x1="0" y1="60" x2="60" y2="60" stroke="#3b82f6" stroke-width="1" />
+                    <line x1="20" y1="40" x2="20" y2="80" stroke="#3b82f6" stroke-width="1" />
+                    <line x1="40" y1="40" x2="40" y2="80" stroke="#3b82f6" stroke-width="1" />
+                    <circle cx="30" cy="10" r="15" fill="url(#sun-glow)" class="data-node" />
+                </g>
+
+                <!-- 3. Subestação Central -->
+                <g transform="translate(170, 180)">
+                    <rect x="0" y="0" width="60" height="50" rx="4" fill="#334155" />
+                    <path d="M10 0 L10 -40 M50 0 L50 -40" stroke="#475569" stroke-width="2" />
+                    <circle cx="30" cy="25" r="10" fill="#22c55e" opacity="0.2" class="data-node" />
+                    <text x="30" y="65" text-anchor="middle" font-size="8" font-weight="bold" fill="#1e293b">SUBESTAÇÃO</text>
+                </g>
+
+                <!-- 4. Linhas de Transmissão (Fluxo de Energia) -->
+                <g>
+                    <!-- Eólica para Subestação -->
+                    <path class="power-line" d="M70 150 Q120 150 170 200" stroke="#3b82f6" stroke-width="2" fill="none" />
+                    <!-- Solar para Subestação -->
+                    <path class="power-line" d="M310 100 Q310 200 230 210" stroke="#3b82f6" stroke-width="2" fill="none" />
+                    <!-- Subestação para Consumidores -->
+                    <path class="power-line" d="M200 230 L100 300" stroke="#10b981" stroke-width="3" fill="none" />
+                    <path class="power-line" d="M230 220 L300 300" stroke="#10b981" stroke-width="3" fill="none" />
+                </g>
+
+                <!-- 5. Consumo Inteligente: Casa Smart -->
+                <g transform="translate(40, 280)">
+                    <path d="M0 40 L30 10 L60 40 L60 70 L0 70 Z" fill="#fff" stroke="#1e293b" stroke-width="2" />
+                    <rect x="20" y="45" width="20" height="25" fill="#bae6fd" />
+                    <circle cx="30" cy="25" r="5" fill="#22c55e" class="data-node" />
+                    <text x="30" y="85" text-anchor="middle" font-size="8" fill="#475569">CASA SMART</text>
+                </g>
+
+                <!-- 6. Mobilidade: Veículo Elétrico (EV) -->
+                <g transform="translate(280, 300)">
+                    <rect x="0" y="20" width="50" height="20" rx="5" fill="#1e293b" />
+                    <rect x="10" y="10" width="25" height="15" rx="3" fill="#1e293b" />
+                    <circle cx="10" cy="40" r="5" fill="#475569" />
+                    <circle cx="40" cy="40" r="5" fill="#475569" />
+                    <path d="M50 30 L65 30 L65 20" fill="none" stroke="#22c55e" stroke-width="2" /> <!-- Carregador -->
+                    <text x="25" y="65" text-anchor="middle" font-size="8" fill="#475569">VEÍCULO ELÉTRICO</text>
+                </g>
+
+                <!-- 7. Armazenamento: Bateria de Grande Escala -->
+                <g transform="translate(180, 280)">
+                    <rect x="0" y="0" width="40" height="60" rx="2" fill="#475569" />
+                    <rect x="5" y="5" width="30" height="10" fill="#22c55e" class="data-node" />
+                    <rect x="5" y="20" width="30" height="10" fill="#22c55e" />
+                    <rect x="5" y="35" width="30" height="10" fill="#22c55e" />
+                    <text x="20" y="75" text-anchor="middle" font-size="8" fill="#475569">BATERIA</text>
+                </g>
+            </svg>
+        </div>
+
+        <!-- Legenda Técnica -->
+        <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-slate-600">
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-blue-500 rounded mt-1"></div>
+                <p><strong>Geração Distribuída:</strong> Integração de fontes renováveis variáveis (eólica/solar) diretamente na rede.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-emerald-500 rounded mt-1"></div>
+                <p><strong>Fluxo Bidirecional:</strong> Consumidores podem injetar excedente de energia de volta na rede (Prosumers).</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-slate-800 rounded mt-1"></div>
+                <p><strong>Monitorização em Tempo Real:</strong> Sensores e dados permitem ajustar a oferta à procura instantaneamente.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-emerald-800 rounded mt-1"></div>
+                <p><strong>V2G (Vehicle-to-Grid):</strong> Baterias de carros elétricos podem servir como reserva de emergência para a rede.</p>
+            </div>
+        </div>
+
+        <div class="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center">
+            <span class="text-xs font-mono text-slate-400">ESQUEMÁTICO V2.0 (SMART GRID)</span>
+            <button onclick="window.print()" class="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm">
+                Exportar Diagrama
+            </button>
+        </div>
+    </div>
+
+</body>
+</html>

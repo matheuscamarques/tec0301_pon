@@ -1,0 +1,23 @@
+# Ignorar artefatos de build e deps (serão gerados no container)
+_build/
+deps/
+apps/simulacoes_visuais/_build/
+apps/simulacoes_visuais/deps/
+
+# Git e IDE
+.git/
+.gitignore
+.cursor/
+*.md
+docs/
+
+# Testes e cobertura
+cover/
+*.cover
+.exs
+
+# Outros
+*.log
+.DS_Store
+.env
+.env.*

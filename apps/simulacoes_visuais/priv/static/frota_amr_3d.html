@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <title>Digital Twin 3D - Frota AMR</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0f172a; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+
+        #hud {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: flex; flex-direction: column;
+            justify-content: space-between; padding: 1.5rem; box-sizing: border-box;
+        }
+        .panel {
+            background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(8px);
+            border: 1px solid rgba(71, 85, 105, 0.8); border-radius: 12px;
+            padding: 1rem; pointer-events: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            transition: all 0.3s ease;
+        }
+        .data-row { display: flex; justify-content: space-between; font-family: monospace; font-size: 0.85rem; margin-top: 0.5rem; color: #cbd5e1; border-bottom: 1px solid #334155; padding-bottom: 0.2rem;}
+        .val { color: #10b981; font-weight: bold; }
+        .val-warn { color: #f59e0b; font-weight: bold; animation: pulse-warn 1.5s infinite; }
+        .val-alert { color: #ef4444; font-weight: bold; }
+        .val-blue { color: #3b82f6; font-weight: bold; }
+
+        @keyframes pulse-warn {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="hud">
+        <div class="flex justify-between items-start">
+            <div class="panel max-w-sm border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.3)]">
+                <h1 class="text-2xl font-bold text-white flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-yellow-500 animate-pulse"></span>
+                    Frota AMR 3D (Robot 1)
+                </h1>
+                <p class="text-slate-400 text-xs mt-1">Foco Detalhado (FBE_10). Navegação e Logística Autónoma.</p>
+            </div>
+
+            <div class="panel w-64 border-blue-500/50">
+                <h2 class="text-white font-bold text-sm mb-2 border-b border-slate-600 pb-1">STATUS DO ROBOT</h2>
+                <div class="data-row"><span>Status:</span> <span class="val-warn" id="hud-status">RECALCULANDO</span></div>
+                <div class="data-row"><span>Bateria:</span> <span class="val-alert"><span id="hud-battery">25</span> %</span></div>
+                <div class="data-row border-0"><span>Carga:</span> <span class="val-blue"><span id="hud-payload">368</span> kg</span></div>
+            </div>
+        </div>
+
+        <div class="flex justify-end items-end">
+            <div id="details-panel" class="panel w-80" style="opacity: 0.5;">
+                <h2 class="text-white font-bold text-sm mb-2 border-b border-slate-600 pb-1 flex justify-between">
+                    <span id="eq-name">Inspecionar AMR</span>
+                    <span id="eq-status" class="text-xs text-slate-400">---</span>
+                </h2>
+                <div id="eq-data-container">
+                    <div class="text-slate-400 text-xs italic py-4 text-center">Clique no robot para ler a telemetria industrial.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script>
+        (function() {
+            var FBE_ID = 10;
+            var HUD_MAP = { "robot_1_battery": "hud-battery", "robot_1_status": "hud-status", "payload_weight": "hud-payload" };
+            function escapeHtml(s) { if (!s) return ""; var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+            window.addEventListener("message", function(e) {
+                if (e.origin !== window.location.origin || !e.data || e.data.type !== "fbe_facts" || e.data.fbeId !== FBE_ID) return;
+                var facts = e.data.facts || [];
+                var c = document.getElementById("eq-data-container");
+                if (c) {
+                    var html = "";
+                    for (var i = 0; i < facts.length; i++) {
+                        html += "<div class=\"data-row\"><span>" + escapeHtml(facts[i].label) + "</span> <span class=\"val\">" + escapeHtml(facts[i].value) + "</span></div>";
+                    }
+                    c.innerHTML = html || "<div class=\"text-slate-400 text-xs italic py-4 text-center\">Dados em tempo real (Smart Brewery).</div>";
+                }
+                for (var j = 0; j < facts.length; j++) {
+                    var id = HUD_MAP[facts[j].label];
+                    if (id) { var el = document.getElementById(id); if (el) el.textContent = facts[j].value; }
+                }
+            });
+        })();
+        window.onload = function () {
+            const container = document.getElementById('canvas-container');
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f172a);
+            scene.fog = new THREE.FogExp2(0x0f172a, 0.01);
+
+            const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(25, 15, 25);
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2.1;
+            controls.target.set(0, 2, 0);
+
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+            let hoveredObject = null;
+            let selectedObject = null;
+            const interactables = [];
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(10, 30, 20);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            scene.add(dirLight);
+            const blueLight = new THREE.PointLight(0x3b82f6, 1.2, 50);
+            blueLight.position.set(-15, 10, 10);
+            scene.add(blueLight);
+            const warnLight = new THREE.PointLight(0xf59e0b, 2, 15);
+            warnLight.position.set(0, 4, 0);
+            scene.add(warnLight);
+
+            const matFloor = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8, metalness: 0.2 });
+            const matAmrBody = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4, metalness: 0.6 });
+            const matSteel = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.3, metalness: 0.8 });
+            const matWheel = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
+            const matAmber = new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xf59e0b, emissiveIntensity: 1 });
+            const matLidar = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 0.1, metalness: 0.9 });
+            const matCrate = new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.8 });
+
+            const floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), matFloor);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+            const gridHelper = new THREE.GridHelper(100, 50, 0x334155, 0x334155);
+            gridHelper.position.y = 0.05;
+            scene.add(gridHelper);
+            const pathLine = new THREE.Mesh(new THREE.PlaneGeometry(80, 4), new THREE.MeshBasicMaterial({ color: 0x334155, transparent: true, opacity: 0.3 }));
+            pathLine.rotation.x = -Math.PI / 2;
+            pathLine.position.y = 0.06;
+            scene.add(pathLine);
+
+            const amrGroup = new THREE.Group();
+            scene.add(amrGroup);
+
+            var bodyLower = new THREE.Mesh(new THREE.BoxGeometry(8, 1.5, 6), matAmrBody);
+            bodyLower.position.y = 1.25;
+            bodyLower.castShadow = true;
+            amrGroup.add(bodyLower);
+            var bodyUpper = new THREE.Mesh(new THREE.BoxGeometry(6, 1, 5), matAmrBody);
+            bodyUpper.position.y = 2.5;
+            bodyUpper.castShadow = true;
+            amrGroup.add(bodyUpper);
+
+            var wheelGeo = new THREE.CylinderGeometry(0.8, 0.8, 0.6, 32);
+            [[2.5, 0.8, 3.1], [-2.5, 0.8, 3.1], [2.5, 0.8, -3.1], [-2.5, 0.8, -3.1]].forEach(function (pos) {
+                var w = new THREE.Mesh(wheelGeo, matWheel);
+                w.rotation.x = Math.PI / 2;
+                w.position.set(pos[0], pos[1], pos[2]);
+                w.castShadow = true;
+                amrGroup.add(w);
+            });
+
+            var lidarBase = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.5, 32), matLidar);
+            lidarBase.position.y = 3.25;
+            amrGroup.add(lidarBase);
+            var lidarScanner = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.4, 32), matLidar);
+            lidarScanner.position.y = 3.7;
+            amrGroup.add(lidarScanner);
+            var scanGeo = new THREE.CylinderGeometry(12, 12, 0.05, 32, 1, true, 0, Math.PI / 3);
+            var scanMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.1, side: THREE.DoubleSide });
+            var scannerBeam = new THREE.Mesh(scanGeo, scanMat);
+            scannerBeam.position.y = 3.7;
+            amrGroup.add(scannerBeam);
+
+            var statusLightGeo = new THREE.BoxGeometry(0.2, 0.5, 1.5);
+            var lightL = new THREE.Mesh(statusLightGeo, matAmber);
+            lightL.position.set(-3.9, 1.5, 0);
+            var lightR = new THREE.Mesh(statusLightGeo, matAmber);
+            lightR.position.set(3.9, 1.5, 0);
+            amrGroup.add(lightL, lightR);
+
+            var payloadGroup = new THREE.Group();
+            payloadGroup.position.y = 3;
+            var palletBase = new THREE.Mesh(new THREE.BoxGeometry(7, 0.4, 5.5), matCrate);
+            palletBase.position.y = 0.2;
+            payloadGroup.add(palletBase);
+            var barrelGeo = new THREE.CylinderGeometry(1.2, 1.2, 3, 16);
+            var barrelMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.5, metalness: 0.5 });
+            [[1.5, 1.7, 1.2], [-1.5, 1.7, 1.2], [1.5, 1.7, -1.2], [-1.5, 1.7, -1.2]].forEach(function (pos) {
+                var b = new THREE.Mesh(barrelGeo, barrelMat);
+                b.position.set(pos[0], pos[1], pos[2]);
+                b.castShadow = true;
+                payloadGroup.add(b);
+                var ring = new THREE.Mesh(new THREE.TorusGeometry(1.21, 0.05, 8, 32), matSteel);
+                ring.rotation.x = Math.PI / 2;
+                ring.position.set(pos[0], pos[1] + 0.8, pos[2]);
+                payloadGroup.add(ring);
+            });
+            amrGroup.add(payloadGroup);
+
+            var hitBoxGeo = new THREE.BoxGeometry(10, 8, 8);
+            var hitBoxMat = new THREE.MeshBasicMaterial({ visible: false });
+            var amrHitBox = new THREE.Mesh(hitBoxGeo, hitBoxMat);
+            amrHitBox.position.y = 3;
+            amrHitBox.userData = {
+                id: "fbe10",
+                name: "Robot AMR Industrial #1",
+                data: {
+                    "Bateria": "25%",
+                    "Localização": "{0, 0}",
+                    "Estado Atual": "RECALCULANDO_ROTA",
+                    "Alerta Colisão": "FALSE",
+                    "Peso da Carga": "368 kg"
+                }
+            };
+            interactables.push(amrHitBox);
+            scene.add(amrHitBox);
+
+            var outlineGeo = new THREE.EdgesGeometry(hitBoxGeo);
+            var outlineMat = new THREE.LineBasicMaterial({ color: 0x3b82f6, transparent: true, opacity: 0 });
+            var outline = new THREE.LineSegments(outlineGeo, outlineMat);
+            outline.position.y = 3;
+            scene.add(outline);
+
+            var clock = new THREE.Clock();
+
+            function safeId(key) { return key.replace(/[^a-zA-Z0-9]/g, ''); }
+
+            function onMouseMove(event) {
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            }
+
+            function clearDetailsPanel() {
+                var panel = document.getElementById('details-panel');
+                var eqName = document.getElementById('eq-name');
+                var eqStatus = document.getElementById('eq-status');
+                var eqData = document.getElementById('eq-data-container');
+                if (panel) panel.style.opacity = '0.5';
+                if (eqName) eqName.innerText = "Inspecionar AMR";
+                if (eqStatus) { eqStatus.innerText = "---"; eqStatus.className = "text-xs text-slate-400"; }
+                if (eqData) eqData.innerHTML = '<div class="text-slate-400 text-xs italic py-4 text-center">Clique no robot para ler a telemetria industrial.</div>';
+            }
+
+            function onClick(event) {
+                if (hoveredObject) {
+                    selectedObject = hoveredObject;
+                    updateHUDDetails(selectedObject.userData);
+                } else {
+                    selectedObject = null;
+                    outline.material.opacity = 0;
+                    clearDetailsPanel();
+                }
+            }
+
+            window.addEventListener('mousemove', onMouseMove, false);
+            window.addEventListener('click', onClick, false);
+
+            function updateHUDDetails(userData) {
+                var panel = document.getElementById('details-panel');
+                var eqName = document.getElementById('eq-name');
+                var eqStatus = document.getElementById('eq-status');
+                var eqData = document.getElementById('eq-data-container');
+                if (!userData || !eqName || !eqStatus || !eqData) return;
+                if (panel) panel.style.opacity = '1';
+                eqName.innerText = userData.name;
+                var html = '';
+                for (var key in userData.data) {
+                    if (!userData.data.hasOwnProperty(key)) continue;
+                    var value = userData.data[key];
+                    var valClass = "val";
+                    if (key === "Bateria") valClass = "val-alert";
+                    if (value === "RECALCULANDO_ROTA") valClass = "val-warn";
+                    if (key === "Peso da Carga") valClass = "val-blue";
+                    html += '<div class="data-row"><span>' + key + ':</span> <span class="' + valClass + '" id="dyn-' + safeId(key) + '">' + value + '</span></div>';
+                }
+                eqStatus.innerText = "WARNING";
+                eqStatus.className = "text-xs text-yellow-500 font-bold animate-pulse";
+                eqData.innerHTML = html;
+            }
+
+            function animate() {
+                requestAnimationFrame(animate);
+                controls.update();
+                var time = clock.getElapsedTime();
+
+                raycaster.setFromCamera(mouse, camera);
+                var intersects = raycaster.intersectObjects(interactables);
+                if (intersects.length > 0) {
+                    if (hoveredObject !== intersects[0].object) {
+                        hoveredObject = intersects[0].object;
+                        document.body.style.cursor = 'pointer';
+                        if (!selectedObject) outline.material.opacity = 0.3;
+                    }
+                } else {
+                    hoveredObject = null;
+                    document.body.style.cursor = 'default';
+                    if (!selectedObject) outline.material.opacity = 0;
+                }
+                if (selectedObject) outline.material.opacity = 0.8;
+
+                lidarScanner.rotation.y += 0.2;
+                scannerBeam.rotation.y += 0.05;
+
+                var flash = Math.sin(time * 6) > 0;
+                matAmber.emissiveIntensity = flash ? 1.5 : 0.1;
+                warnLight.intensity = flash ? 2.0 : 0.5;
+
+                amrGroup.rotation.y = Math.sin(time * 0.5) * 0.15;
+                amrHitBox.rotation.y = amrGroup.rotation.y;
+                outline.rotation.y = amrGroup.rotation.y;
+
+                renderer.render(scene, camera);
+            }
+
+            animate();
+
+            window.addEventListener('resize', function () {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }, false);
+
+            setInterval(function () {
+                var elapsed = clock.getElapsedTime();
+                var bat = Math.max(1, Math.round(25 - elapsed / 100));
+                var hBat = document.getElementById('hud-battery');
+                if (hBat) hBat.innerText = bat;
+
+                if (selectedObject) {
+                    var elBat = document.getElementById('dyn-Bateria');
+                    if (elBat) elBat.innerText = bat + "%";
+                }
+            }, 5000);
+        };
+    </script>
+</body>
+</html>

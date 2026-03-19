@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Desenho SVG - Tanque de Mostura</title>
+    <style>
+        @keyframes steam {
+            0% { transform: translateY(0) scale(1); opacity: 0; }
+            50% { opacity: 0.5; }
+            100% { transform: translateY(-40px) scale(1.5); opacity: 0; }
+        }
+        .steam-particle {
+            animation: steam 3s ease-in-out infinite;
+        }
+        .gauge-needle {
+            transform-origin: 200px 240px;
+            transition: transform 1s ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="bg-white p-8 rounded-2xl shadow-xl max-w-2xl w-full">
+        <h1 class="text-2xl font-bold text-slate-800 mb-6 text-center">Tanque de Mostura (Mash Tun)</h1>
+
+        <div class="relative flex justify-center">
+            <!-- SVG do Tanque -->
+            <svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+                <!-- Definições de Gradientes -->
+                <defs>
+                    <linearGradient id="steel" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" style="stop-color:#94a3b8;stop-opacity:1" />
+                        <stop offset="30%" style="stop-color:#f1f5f9;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#475569;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="liquid" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#92400e;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#451a03;stop-opacity:1" />
+                    </linearGradient>
+                </defs>
+
+                <!-- Vapor Animado -->
+                <g opacity="0.6">
+                    <circle class="steam-particle" cx="180" cy="110" r="8" fill="#e2e8f0" style="animation-delay: 0s;"/>
+                    <circle class="steam-particle" cx="220" cy="100" r="10" fill="#e2e8f0" style="animation-delay: 1s;"/>
+                    <circle class="steam-particle" cx="200" cy="115" r="6" fill="#e2e8f0" style="animation-delay: 2s;"/>
+                </g>
+
+                <!-- Corpo do Tanque (Cilíndrico) -->
+                <rect x="100" y="120" width="200" height="220" rx="10" fill="url(#steel)" stroke="#334155" stroke-width="2" />
+
+                <!-- Tampa -->
+                <path d="M100 130 Q100 110 200 110 Q300 110 300 130 Z" fill="#64748b" stroke="#334155" stroke-width="2" />
+                <rect x="185" y="95" width="30" height="15" rx="3" fill="#334155" />
+
+                <!-- Pegas Laterais -->
+                <path d="M100 180 L80 180 L80 220 L100 220" fill="none" stroke="#334155" stroke-width="6" stroke-linecap="round" />
+                <path d="M300 180 L320 180 L320 220 L300 220" fill="none" stroke="#334155" stroke-width="6" stroke-linecap="round" />
+
+                <!-- Termómetro (Gauge) -->
+                <circle cx="200" cy="240" r="25" fill="white" stroke="#334155" stroke-width="2" />
+                <path d="M185 240 A15 15 0 0 1 215 240" fill="none" stroke="#ef4444" stroke-width="2" /> <!-- Arco de temperatura alta -->
+                <line class="gauge-needle" x1="200" y1="240" x2="215" y2="225" stroke="#1e293b" stroke-width="2" />
+                <circle cx="200" cy="240" r="3" fill="#1e293b" />
+
+                <!-- Torneira / Válvula de Esfera (Ball Valve) -->
+                <g transform="translate(200, 310)">
+                    <rect x="90" y="-5" width="25" height="10" fill="#475569" /> <!-- Cano -->
+                    <circle cx="115" cy="0" r="8" fill="#64748b" stroke="#334155" /> <!-- Corpo da válvula -->
+                    <rect x="110" y="-20" width="5" height="20" rx="2" fill="#ef4444" transform="rotate(-30, 115, 0)" /> <!-- Alavanca -->
+                    <path d="M123 -5 L135 5 L135 15" fill="none" stroke="#475569" stroke-width="4" stroke-linecap="round" /> <!-- Saída -->
+                </g>
+
+                <!-- Pés do Tanque -->
+                <rect x="120" y="340" width="15" height="20" fill="#334155" />
+                <rect x="265" y="340" width="15" height="20" fill="#334155" />
+
+                <!-- Chão / Sombra -->
+                <ellipse cx="200" cy="365" rx="120" ry="10" fill="#cbd5e1" opacity="0.5" />
+            </svg>
+        </div>
+
+        <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-slate-600">
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-slate-400 rounded mt-1"></div>
+                <p><strong>Aço Inoxidável 304:</strong> Parede dupla com isolamento térmico para manter a temperatura estável.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-red-500 rounded mt-1"></div>
+                <p><strong>Termómetro Analógico:</strong> Monitorização precisa da temperatura de mosturação (sacarificação).</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-slate-800 rounded mt-1"></div>
+                <p><strong>Fundo Falso (Interno):</strong> Sistema de filtragem para separar o mosto límpido das cascas do malte.</p>
+            </div>
+            <div class="flex items-start gap-2">
+                <div class="w-4 h-4 bg-red-800 rounded mt-1"></div>
+                <p><strong>Válvula de Esfera:</strong> Saída de alto fluxo para transferência do mosto para a caldeira de fervura.</p>
+            </div>
+        </div>
+
+        <div class="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center">
+            <span class="text-xs font-mono text-slate-400">ESQUEMÁTICO V1.1</span>
+            <button onclick="window.print()" class="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm">
+                Exportar Projeto
+            </button>
+        </div>
+    </div>
+
+</body>
+</html>

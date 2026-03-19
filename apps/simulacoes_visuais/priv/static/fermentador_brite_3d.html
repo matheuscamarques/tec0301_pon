@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <title>Digital Twin 3D - Fermentador B (Brite Tank)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0f172a; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+
+        #hud {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: flex; flex-direction: column;
+            justify-content: space-between; padding: 1.5rem; box-sizing: border-box;
+        }
+        .panel {
+            background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(8px);
+            border: 1px solid rgba(71, 85, 105, 0.8); border-radius: 12px;
+            padding: 1rem; pointer-events: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            transition: all 0.3s ease;
+        }
+        .data-row { display: flex; justify-content: space-between; font-family: monospace; font-size: 0.85rem; margin-top: 0.5rem; color: #cbd5e1; border-bottom: 1px solid #334155; padding-bottom: 0.2rem;}
+        .val { color: #10b981; font-weight: bold; }
+        .val-warn { color: #f59e0b; font-weight: bold; }
+        .val-alert { color: #ef4444; font-weight: bold; }
+        .val-blue { color: #3b82f6; font-weight: bold; }
+        .val-neutral { color: #94a3b8; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="hud">
+        <div class="flex justify-between items-start">
+            <div class="panel max-w-sm">
+                <h1 class="text-2xl font-bold text-white flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-blue-500 animate-pulse"></span>
+                    Fermentador B 3D (Brite)
+                </h1>
+                <p class="text-slate-400 text-xs mt-1">Foco Detalhado (FBE_07). Clique no equipamento para ler a telemetria.</p>
+            </div>
+
+            <div class="panel w-64">
+                <h2 class="text-white font-bold text-sm mb-2 border-b border-slate-600 pb-1">STATUS DA FERMENTAÇÃO</h2>
+                <div class="data-row"><span>Temperatura:</span> <span class="val-warn"><span id="hud-temp">21.0</span> °C</span></div>
+                <div class="data-row"><span>Brix (Gravidade):</span> <span class="val"><span id="hud-brix">16.0</span></span></div>
+                <div class="data-row border-0"><span>Exaustão CO2:</span> <span class="val-neutral"><span id="hud-co2">45</span> L/m</span></div>
+            </div>
+        </div>
+
+        <div class="flex justify-end items-end">
+            <div id="details-panel" class="panel w-80" style="opacity: 0.5;">
+                <h2 class="text-white font-bold text-sm mb-2 border-b border-slate-600 pb-1 flex justify-between">
+                    <span id="eq-name">Inspecionar Equipamento</span>
+                    <span id="eq-status" class="text-xs text-slate-400">---</span>
+                </h2>
+                <div id="eq-data-container">
+                    <div class="text-slate-400 text-xs italic py-4 text-center">Clique no fermentador para ver os dados.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script>
+        (function() {
+            var FBE_ID = 7;
+            var HUD_MAP = { "internal_temp": "hud-temp", "gravity_brix": "hud-brix", "co2_exhaust_flow": "hud-co2" };
+            window.__fbeFacts = {};
+            function escapeHtml(s) { if (!s) return ""; var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+            window.addEventListener("message", function(e) {
+                if (e.origin !== window.location.origin || !e.data || e.data.type !== "fbe_facts" || e.data.fbeId !== FBE_ID) return;
+                var facts = e.data.facts || [];
+                window.__fbeFacts = {};
+                for (var j = 0; j < facts.length; j++) {
+                    window.__fbeFacts[facts[j].label] = facts[j].value;
+                    var id = HUD_MAP[facts[j].label];
+                    if (id) { var el = document.getElementById(id); if (el) el.textContent = facts[j].value; }
+                }
+                var c = document.getElementById("eq-data-container");
+                if (c) {
+                    var html = "";
+                    for (var i = 0; i < facts.length; i++) {
+                        html += "<div class=\"data-row\"><span>" + escapeHtml(facts[i].label) + "</span> <span class=\"val\">" + escapeHtml(facts[i].value) + "</span></div>";
+                    }
+                    c.innerHTML = html || "<div class=\"text-slate-400 text-xs italic py-4 text-center\">Dados em tempo real (Smart Brewery).</div>";
+                }
+            });
+        })();
+        window.onload = function () {
+            const container = document.getElementById('canvas-container');
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f172a);
+            scene.fog = new THREE.FogExp2(0x0f172a, 0.012);
+
+            const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(35, 25, 40);
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 - 0.01;
+            controls.target.set(0, 12, 0);
+
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+            let hoveredObject = null;
+            let selectedObject = null;
+            const interactables = [];
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(30, 50, 40);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            scene.add(dirLight);
+            const blueLight = new THREE.PointLight(0x3b82f6, 1.0, 60);
+            blueLight.position.set(-20, 20, 20);
+            scene.add(blueLight);
+            const whiteLight = new THREE.PointLight(0xffffff, 0.4, 40);
+            whiteLight.position.set(20, 10, -20);
+            scene.add(whiteLight);
+
+            const matFloor = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8, metalness: 0.2 });
+            const matSteel = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.35, metalness: 0.85 });
+            const matDarkSteel = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6, metalness: 0.4 });
+            const matJacketOff = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.5, metalness: 0.5 });
+
+            const floor = new THREE.Mesh(new THREE.CylinderGeometry(20, 20, 1, 64), matFloor);
+            floor.position.y = -0.5;
+            floor.receiveShadow = true;
+            scene.add(floor);
+            const gridHelper = new THREE.GridHelper(40, 20, 0x334155, 0x334155);
+            scene.add(gridHelper);
+
+            const fermGroup = new THREE.Group();
+            scene.add(fermGroup);
+
+            var radius = 5;
+            var cylHeight = 11;
+            var cylY = 11;
+            var legGeo = new THREE.CylinderGeometry(0.35, 0.25, 6, 16);
+            [[3.8, 3, 3.8], [-3.8, 3, 3.8], [3.8, 3, -3.8], [-3.8, 3, -3.8]].forEach(function (pos) {
+                var leg = new THREE.Mesh(legGeo, matDarkSteel);
+                leg.position.set(pos[0], pos[1], pos[2]);
+                leg.castShadow = true;
+                var foot = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.2, 16), matDarkSteel);
+                foot.position.set(pos[0], 0.1, pos[2]);
+                fermGroup.add(foot);
+                fermGroup.add(leg);
+            });
+
+            var bottomDome = new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 32, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), matSteel);
+            bottomDome.position.y = cylY - cylHeight / 2;
+            bottomDome.castShadow = true;
+            fermGroup.add(bottomDome);
+
+            var cylinder = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, cylHeight, 64), matSteel);
+            cylinder.position.y = cylY;
+            cylinder.castShadow = true;
+            cylinder.receiveShadow = true;
+            fermGroup.add(cylinder);
+
+            var domeY = cylY + cylHeight / 2;
+            var dome = new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 32, 0, Math.PI * 2, 0, Math.PI / 2), matSteel);
+            dome.position.y = domeY;
+            dome.castShadow = true;
+            fermGroup.add(dome);
+
+            var jacket1 = new THREE.Mesh(new THREE.CylinderGeometry(radius + 0.05, radius + 0.05, 3.5, 64), matJacketOff);
+            jacket1.position.y = cylY - 2.5;
+            fermGroup.add(jacket1);
+            var jacket2 = new THREE.Mesh(new THREE.CylinderGeometry(radius + 0.05, radius + 0.05, 3.5, 64), matJacketOff);
+            jacket2.position.y = cylY + 2.5;
+            fermGroup.add(jacket2);
+
+            var sgGroup = new THREE.Group();
+            sgGroup.position.set(radius * 0.75, cylY, radius * 0.75);
+            sgGroup.rotation.y = Math.PI / 4;
+            var sgBg = new THREE.Mesh(new THREE.BoxGeometry(0.8, 9, 0.2), matDarkSteel);
+            sgBg.castShadow = true;
+            var sgTube = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 8.5, 16), new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, roughness: 0.1 }));
+            sgTube.position.z = 0.2;
+            var sgLiquid = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 6, 16), new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.2 }));
+            sgLiquid.position.set(0, -1.25, 0.2);
+            window.sgLiquidRef = sgLiquid;
+            var connTop = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.8, 16), matDarkSteel);
+            connTop.rotation.x = Math.PI / 2;
+            connTop.position.set(0, 4.25, -0.2);
+            var connBot = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.8, 16), matDarkSteel);
+            connBot.rotation.x = Math.PI / 2;
+            connBot.position.set(0, -4.25, -0.2);
+            sgGroup.add(sgBg, sgTube, sgLiquid, connTop, connBot);
+            fermGroup.add(sgGroup);
+
+            var manwayGroup = new THREE.Group();
+            manwayGroup.position.set(0, cylY - 4, radius);
+            var manwayCollar = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 0.4, 32), matDarkSteel);
+            manwayCollar.rotation.x = Math.PI / 2;
+            manwayCollar.castShadow = true;
+            var manwayLid = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.3, 0.1, 32), matSteel);
+            manwayLid.rotation.x = Math.PI / 2;
+            manwayLid.position.z = 0.2;
+            manwayLid.castShadow = true;
+            var hinge = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.8, 0.3), matDarkSteel);
+            hinge.position.set(1.3, 0, 0.1);
+            manwayGroup.add(manwayCollar, manwayLid, hinge);
+            fermGroup.add(manwayGroup);
+
+            var pipeRadius = 0.25;
+            var pipeVert = new THREE.Mesh(new THREE.CylinderGeometry(pipeRadius, pipeRadius, cylHeight + 4, 16), matSteel);
+            pipeVert.position.set(radius + 0.8, cylY + 1, 0);
+            pipeVert.castShadow = true;
+            fermGroup.add(pipeVert);
+            var topElbow = new THREE.Mesh(new THREE.CylinderGeometry(pipeRadius, pipeRadius, 2, 16), matSteel);
+            topElbow.rotation.z = Math.PI / 2;
+            topElbow.position.set(radius - 0.2, domeY + radius + 0.5, 0);
+            fermGroup.add(topElbow);
+            var pipeToDome = new THREE.Mesh(new THREE.CylinderGeometry(pipeRadius, pipeRadius, 1, 16), matSteel);
+            pipeToDome.position.set(0, domeY + radius, 0);
+            fermGroup.add(pipeToDome);
+
+            var prvAssembly = new THREE.Group();
+            prvAssembly.position.set(radius + 0.8, cylY - 2, 0);
+            var prvValve = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.8, 16), matDarkSteel);
+            prvValve.rotation.z = Math.PI / 2;
+            prvValve.position.set(0.6, 0, 0);
+            prvAssembly.add(prvValve);
+            var exhaustPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 1.5, 16), matSteel);
+            exhaustPipe.position.set(1.2, -0.75, 0);
+            prvAssembly.add(exhaustPipe);
+            fermGroup.add(prvAssembly);
+
+            var hitBoxGeo = new THREE.CylinderGeometry(6, 6, 18, 16);
+            var hitBoxMat = new THREE.MeshBasicMaterial({ visible: false });
+            var fermHitBox = new THREE.Mesh(hitBoxGeo, hitBoxMat);
+            fermHitBox.position.y = 11;
+            fermHitBox.userData = {
+                id: "fbe07",
+                name: "Fermentador B (Brite)",
+                data: {
+                    "Temp. Interna": "21.0 °C",
+                    "Pressão": "0.0 bar",
+                    "Gravidade (Brix)": "16.0",
+                    "Jaqueta Glicol": "OFF",
+                    "Exaustão CO2": "45 L/min",
+                    "Fase Ferm.": "GROWTH"
+                },
+                isHighlighted: false
+            };
+            interactables.push(fermHitBox);
+            scene.add(fermHitBox);
+
+            var outlineGeo = new THREE.EdgesGeometry(hitBoxGeo);
+            var outlineMat = new THREE.LineBasicMaterial({ color: 0x3b82f6, linewidth: 2, transparent: true, opacity: 0 });
+            var outline = new THREE.LineSegments(outlineGeo, outlineMat);
+            outline.position.y = 11;
+            scene.add(outline);
+
+            var co2Particles = new THREE.Group();
+            var pGeo = new THREE.SphereGeometry(0.12, 8, 8);
+            var pMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 });
+            var exhaustBaseX = radius + 2.0;
+            var exhaustBaseY = cylY - 2.8;
+            for (var i = 0; i < 25; i++) {
+                var p = new THREE.Mesh(pGeo, pMat.clone());
+                p.position.set(exhaustBaseX + (Math.random() - 0.5) * 0.2, exhaustBaseY - Math.random() * 2, (Math.random() - 0.5) * 0.2);
+                p.userData = { velocity: -(Math.random() * 0.08 + 0.03), life: Math.random() };
+                co2Particles.add(p);
+            }
+            scene.add(co2Particles);
+
+            function safeId(key) { return key.replace(/[^a-zA-Z0-9]/g, ''); }
+
+            function onMouseMove(event) {
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            }
+
+            function clearDetailsPanel() {
+                var panel = document.getElementById('details-panel');
+                var eqName = document.getElementById('eq-name');
+                var eqStatus = document.getElementById('eq-status');
+                var eqData = document.getElementById('eq-data-container');
+                if (panel) panel.style.opacity = '0.5';
+                if (eqName) eqName.innerText = "Inspecionar Equipamento";
+                if (eqStatus) { eqStatus.innerText = "---"; eqStatus.className = "text-xs text-slate-400"; }
+                if (eqData) eqData.innerHTML = '<div class="text-slate-400 text-xs italic py-4 text-center">Clique no fermentador para ver os dados.</div>';
+            }
+
+            function onClick(event) {
+                if (hoveredObject) {
+                    selectedObject = hoveredObject;
+                    updateHUDDetails(selectedObject.userData);
+                } else {
+                    selectedObject = null;
+                    outline.material.opacity = 0;
+                    clearDetailsPanel();
+                }
+            }
+
+            window.addEventListener('mousemove', onMouseMove, false);
+            window.addEventListener('click', onClick, false);
+
+            function updateHUDDetails(userData) {
+                var panel = document.getElementById('details-panel');
+                var eqName = document.getElementById('eq-name');
+                var eqStatus = document.getElementById('eq-status');
+                var eqData = document.getElementById('eq-data-container');
+                if (!userData || !eqName || !eqStatus || !eqData) return;
+                if (panel) panel.style.opacity = '1';
+                eqName.innerText = userData.name;
+                var html = '';
+                for (var key in userData.data) {
+                    if (!userData.data.hasOwnProperty(key)) continue;
+                    var value = userData.data[key];
+                    var valClass = "val";
+                    if (key.indexOf("Temp") !== -1 && parseFloat(value) > 20) valClass = "val-warn";
+                    if (key.indexOf("Jaqueta") !== -1 && value === "OFF") valClass = "val-neutral";
+                    html += '<div class="data-row"><span>' + key + ':</span> <span class="' + valClass + '" id="dyn-' + safeId(key) + '">' + value + '</span></div>';
+                }
+                eqStatus.innerText = "GROWTH PHASE";
+                eqStatus.className = "text-xs text-blue-400 font-bold";
+                eqData.innerHTML = html;
+            }
+
+            function animate() {
+                requestAnimationFrame(animate);
+                controls.update();
+                if (window.sgLiquidRef && window.sgLiquidRef.material && window.__fbeFacts) {
+                    var co2 = parseFloat(window.__fbeFacts.co2_exhaust_flow, 10);
+                    var temp = parseFloat(window.__fbeFacts.internal_temp, 10);
+                    window.sgLiquidRef.material.opacity = 0.5 + Math.min(0.5, (isNaN(co2) ? 0 : co2) / 100);
+                    if (!isNaN(temp) && temp > 18) window.sgLiquidRef.material.color.setHex(0xfbbf24);
+                    else window.sgLiquidRef.material.color.setHex(0xfcd34d);
+                }
+                raycaster.setFromCamera(mouse, camera);
+                var intersects = raycaster.intersectObjects(interactables);
+                if (intersects.length > 0) {
+                    if (hoveredObject !== intersects[0].object) {
+                        hoveredObject = intersects[0].object;
+                        document.body.style.cursor = 'pointer';
+                        if (!selectedObject) outline.material.opacity = 0.2;
+                    }
+                } else {
+                    hoveredObject = null;
+                    document.body.style.cursor = 'default';
+                    if (!selectedObject) outline.material.opacity = 0;
+                }
+                if (selectedObject) outline.material.opacity = 0.6;
+
+                co2Particles.children.forEach(function (p) {
+                    p.position.y += p.userData.velocity;
+                    var currentScale = 1 + (p.userData.life * 1.5);
+                    p.scale.set(currentScale, currentScale, currentScale);
+                    p.userData.life += 0.025;
+                    p.material.opacity = 0.6 * (1 - p.userData.life);
+                    if (p.userData.life >= 1.0) {
+                        p.position.set(exhaustBaseX + (Math.random() - 0.5) * 0.2, exhaustBaseY, (Math.random() - 0.5) * 0.2);
+                        p.userData.life = 0;
+                    }
+                });
+
+                renderer.render(scene, camera);
+            }
+
+            animate();
+
+            window.addEventListener('resize', function () {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }, false);
+
+            setInterval(function () {
+                var currentTemp = 21.0 + (Math.random() * 0.2 - 0.1);
+                var currentBrix = 16.0 - (Math.random() * 0.04);
+                var currentCo2 = 45 + Math.floor(Math.random() * 4 - 2);
+                var hudTemp = document.getElementById('hud-temp');
+                var hudBrix = document.getElementById('hud-brix');
+                var hudCo2 = document.getElementById('hud-co2');
+                if (hudTemp) hudTemp.innerText = currentTemp.toFixed(1);
+                if (hudBrix) hudBrix.innerText = currentBrix.toFixed(2);
+                if (hudCo2) hudCo2.innerText = currentCo2;
+
+                if (selectedObject) {
+                    var elTemp = document.getElementById('dyn-TempInterna');
+                    if (elTemp) elTemp.innerText = currentTemp.toFixed(1) + " °C";
+                    var elBrix = document.getElementById('dyn-GravidadeBrix');
+                    if (elBrix) elBrix.innerText = currentBrix.toFixed(2);
+                    var elCo2 = document.getElementById('dyn-ExaustoCO2');
+                    if (elCo2) elCo2.innerText = currentCo2 + " L/min";
+                }
+            }, 2000);
+        };
+    </script>
+</body>
+</html>
