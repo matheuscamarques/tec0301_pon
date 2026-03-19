@@ -12,8 +12,37 @@ A documentação de design (artigos de arquitetura, passo a passo do motor PON, 
 | Onde | O que |
 |------|--------|
 | **Código** | `@moduledoc` e `@doc` nos módulos; gere a doc com `mix docs`. |
+| **Comparação NOP** | [docs/comparison_pon_vs_nop_kernel.md](docs/comparison_pon_vs_nop_kernel.md) e recursos incorporados. |
 
 Use o código e a documentação gerada com `mix docs` como referência principal para entender e estender o PON.
+
+### DSL PON (Builder)
+
+O núcleo expõe uma DSL em `use Tec0301Pon.PON.Builder`:
+
+- **defrule** – Define uma regra: `watch:` (fatos), `when:` (condição em código ou em string) e `do:` (ação em bloco ou `instigations: [{Mod, :fun, [args]}, ...]`). Gera um submódulo com `avaliar/1`, `executar/1` e `start_link/0`.
+- **defpremissa** – Define uma premissa reutilizável (estilo NOP): observa fatos em `watch:`, avalia `when:` e atualiza o fato em `derive:` apenas quando o resultado booleano muda. Opção `criar_fato: true` cria o fato derivado se não existir. Regras podem então observar o fato derivado em vez de repetir a condição.
+
+Exemplo combinado:
+
+```elixir
+defmodule MeuApp.Regras do
+  use Tec0301Pon.PON.Builder
+
+  defpremissa TempAlta,
+    watch: [:temp_ambiente],
+    when: (memoria[:temp_ambiente] || 0) > 30,
+    derive: :temp_alta,
+    criar_fato: true
+
+  defrule RegraRefrigera,
+    watch: [:temp_alta, :estado_compressor],
+    when: memoria[:temp_alta] == true and memoria[:estado_compressor] == :off,
+    do: MeuApp.Atuadores.ligar_compressor()
+end
+```
+
+No bootstrap: iniciar fatos, depois `MeuApp.Regras.TempAlta.start_link()` (premissa), depois as regras (e.g. `MeuApp.Regras.RegraRefrigera.start_link()`). Estatísticas opcionais via `Tec0301Pon.PON.Service` (ver `Tec0301Pon.PON.Service` e `Tec0301Pon.PON.Fato.estatisticas/1`).
 ## Uma Abordagem Funcional e Dinâmica para o Paradigma Orientado a Notificações: Metaprogramação, Arquitetura Hexagonal e Troca Quente de Código em Elixir
 
 ### 1. Problema e Justificativa
