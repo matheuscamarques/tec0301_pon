@@ -1,4 +1,4 @@
-# Tec0301Pon
+# TEC0301 - Tópicos Especiais em EC (Engenharia da Computação): Paradigma Orientado a Notificações
 
 ## Autor
 Matheus de Camargo Marques - matheuscamarques@gmail.com
