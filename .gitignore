@@ -22,9 +22,16 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 tec0301_pon-*.tar
 
-/docs/
+# Local/generated material under docs/; keep dev.to drafts versioned (see docs/devto/).
+/docs/*
+!/docs/devto/
+!/docs/devto/**
+!/docs/devto_serie_pon_smart_brewery.md
 
-./docs/
+./docs/*
+!./docs/devto/
+!./docs/devto/**
+!./docs/devto_serie_pon_smart_brewery.md
 
 /.cursor/
 ./.cursor/
