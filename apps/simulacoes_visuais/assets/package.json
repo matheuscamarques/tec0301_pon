@@ -1,0 +1,7 @@
+{
+  "name": "simulacoes_visuais_assets",
+  "private": true,
+  "dependencies": {
+    "d3": "^7.9.0"
+  }
+}

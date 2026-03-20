@@ -12,7 +12,8 @@ defmodule SimulacoesVisuais.SmartBrewery.OEE do
     - Qualidade = Peças Boas / Total Peças
 
   Configure `:oee_nakajima_enabled` e parâmetros em config para ativar o modo Nakajima.
-  Sempre publica OEE global (e componentes A/P/Q quando disponíveis) em `smart_brewery:oee`.
+  Publica OEE em `smart_brewery:oee` com throttle configurável (`:oee_pubsub_min_interval_ms`, default 1s)
+  para reduzir broadcasts e gravações em `oee_snapshots` quando o TSDB está ativo.
   """
 
   use GenServer
@@ -54,6 +55,10 @@ defmodule SimulacoesVisuais.SmartBrewery.OEE do
       Keyword.get(opts, :planned_shift_sec) ||
         Application.get_env(:simulacoes_visuais, :oee_planned_shift_sec, 8 * 3600)
 
+    oee_pubsub_min_interval_ms =
+      Keyword.get(opts, :oee_pubsub_min_interval_ms) ||
+        Application.get_env(:simulacoes_visuais, :oee_pubsub_min_interval_ms, 1_000)
+
     state = %{
       oee_percent: nil,
       oee_components: nil,
@@ -64,7 +69,9 @@ defmodule SimulacoesVisuais.SmartBrewery.OEE do
       planned_time_sec: 0.0,
       run_time_sec: 0.0,
       total_pieces: 0,
-      good_pieces: 0
+      good_pieces: 0,
+      oee_pubsub_min_interval_ms: oee_pubsub_min_interval_ms,
+      last_oee_broadcast_ms: nil
     }
 
     {:ok, state}
@@ -87,7 +94,6 @@ defmodule SimulacoesVisuais.SmartBrewery.OEE do
           oee: oee_pct
         }
 
-        broadcast_oee(oee_pct, comp)
         {oee_pct, comp, %{}}
       end
 
@@ -96,6 +102,7 @@ defmodule SimulacoesVisuais.SmartBrewery.OEE do
       |> Map.put(:oee_percent, oee)
       |> Map.put(:oee_components, components)
       |> Map.merge(nakajima_updates)
+      |> maybe_broadcast_oee_throttled(oee, components)
 
     {:noreply, new_state}
   end
@@ -115,9 +122,7 @@ defmodule SimulacoesVisuais.SmartBrewery.OEE do
     a = availability_facts(fatos)
     p = performance_facts(fatos)
     q = quality_facts(fatos)
-    pct = round(a * p * q * 100) / 100
-    broadcast_oee(pct, %{availability: a, performance: p, quality: q, oee: pct})
-    pct
+    round(a * p * q * 100) / 100
   end
 
   defp compute_oee_nakajima(fatos, state) do
@@ -160,8 +165,6 @@ defmodule SimulacoesVisuais.SmartBrewery.OEE do
       oee: oee_pct
     }
 
-    broadcast_oee(oee_pct, components)
-
     nakajima_updates = %{
       planned_time_sec: planned_new,
       run_time_sec: run_new,
@@ -170,6 +173,22 @@ defmodule SimulacoesVisuais.SmartBrewery.OEE do
     }
 
     {oee_pct, components, nakajima_updates}
+  end
+
+  defp maybe_broadcast_oee_throttled(state, pct, components) do
+    interval = state.oee_pubsub_min_interval_ms
+    now = :erlang.monotonic_time(:millisecond)
+
+    allow? =
+      interval <= 0 or state.last_oee_broadcast_ms == nil or
+        now - state.last_oee_broadcast_ms >= interval
+
+    if allow? do
+      broadcast_oee(pct, components)
+      %{state | last_oee_broadcast_ms: now}
+    else
+      state
+    end
   end
 
   defp broadcast_oee(pct, components) do

@@ -71,6 +71,9 @@ defmodule SimulacoesVisuais.MixProject do
       {:ecto_sql, "~> 3.10"},
       {:postgrex, ">= 0.0.0"},
       {:nx, "~> 0.11"},
+      {:axon, "~> 0.8"},
+      {:scholar, "~> 0.4"},
+      {:nimble_csv, "~> 1.2"},
       {:tec0301_pon, path: "../.."}
     ]
   end
@@ -83,16 +86,47 @@ defmodule SimulacoesVisuais.MixProject do
   # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
+      # Phoenix com TSDB + Monte Carlo por omissão (env já definido no shell não é sobrescrito).
+      "dev.tsdb": &dev_tsdb_server/1,
       setup: ["deps.get", "assets.setup", "assets.build"],
-      "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind simulacoes_visuais", "esbuild simulacoes_visuais"],
+      "profile.pipeline": ["simulacoes_visuais.profile_workload"],
+      "stress.hammer": ["simulacoes_visuais.stress_hammer"],
+      "verify.tsdb": ["simulacoes_visuais.verify_tsdb"],
+      "verify.bi": ["simulacoes_visuais.verify_bi_queries"],
+      "export.ml": ["simulacoes_visuais.export_ml"],
+      "import.ml.predictions": ["simulacoes_visuais.ml_import_predictions"],
+      "train.ml": ["simulacoes_visuais.ml_train"],
+      "retention.tsdb": ["simulacoes_visuais.retention"],
+      "assets.setup": [
+        "tailwind.install --if-missing",
+        "esbuild.install --if-missing",
+        "simulacoes_visuais.assets_npm"
+      ],
+      "assets.build": [
+        "compile",
+        "tailwind simulacoes_visuais",
+        "esbuild simulacoes_visuais"
+      ],
       "assets.deploy": [
         "tailwind simulacoes_visuais --minify",
         "esbuild simulacoes_visuais --minify",
         "phx.digest"
       ],
       "ecto.create": ["db.check", "ecto.create"],
+      "ecto.reset": ["ecto.drop --force", "ecto.create", "ecto.migrate"],
       precommit: ["compile --warning-as-errors", "deps.unlock --unused", "format", "test"]
     ]
+  end
+
+  defp dev_tsdb_server(args) do
+    put_env_default("SIMULACOES_TSDB_ENABLED", "true")
+    put_env_default("AUTO_START_MONTE_CARLO", "true")
+    Mix.Task.run("phx.server", args)
+  end
+
+  defp put_env_default(name, value) do
+    if System.get_env(name) == nil do
+      System.put_env(name, value)
+    end
   end
 end

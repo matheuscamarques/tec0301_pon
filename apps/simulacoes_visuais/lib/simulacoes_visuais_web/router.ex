@@ -19,6 +19,7 @@ defmodule SimulacoesVisuaisWeb.Router do
 
     get "/", PageController, :home
     live "/smart-brewery", SmartBreweryLive, :index
+    live "/smart-brewery/ml-predictions", MlPredictionsLive, :index
   end
 
   # Other scopes may use custom stacks.

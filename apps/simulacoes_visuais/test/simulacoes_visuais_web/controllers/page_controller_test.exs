@@ -6,5 +6,8 @@ defmodule SimulacoesVisuaisWeb.PageControllerTest do
     html = html_response(conn, 200)
     assert html =~ "Gêmeo Digital"
     assert html =~ "Smart Brewery"
+    assert html =~ "id=\"glossario\""
+    assert html =~ "lang=\"pt-BR\""
+    assert html =~ "<abbr"
   end
 end

@@ -83,6 +83,13 @@ defmodule SimulacoesVisuais.SmartBreweryTelemetryBatcher do
         end
       end
 
+      # Paridade com `TelemetryPipeline.handle_batch/4`: sem isto, quando o FactBroadcaster
+      # faz fallback para este batcher (producer Broadway indisponível), OEE/LiveView recebem
+      # `smart_brewery:fatos` mas `telemetry_events` deixa de ser persistido.
+      if Application.get_env(:simulacoes_visuais, :tsdb_enabled, false) do
+        SimulacoesVisuais.SmartBrewery.TelemetryAsyncWriter.cast_batch(list)
+      end
+
       Logger.debug("[SmartBreweryTelemetryBatcher] Flush #{updates_count} atualizações.")
     end
 

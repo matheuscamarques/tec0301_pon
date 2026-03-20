@@ -1,5 +1,5 @@
 // Phoenix LiveView app entry point.
-// Hooks are in separate files to avoid merge conflicts: js/hooks/mermaid_hook.js, scene_2d_hook.js, scene_3d_hook.js
+// Hooks are in separate files to avoid merge conflicts: mermaid_hook.js, scene_3d_hook.js, d3_bi_chart_hook.js
 
 import "phoenix_html"
 import { Socket } from "phoenix"
@@ -8,9 +8,9 @@ import { hooks as colocatedHooks } from "phoenix-colocated/simulacoes_visuais"
 import topbar from "../vendor/topbar"
 
 import MermaidHook from "./hooks/mermaid_hook.js"
-import Scene2DHook from "./hooks/scene_2d_hook.js"
 import Scene3DHook from "./hooks/scene_3d_hook.js"
 import FbeDetailIframeHook from "./hooks/fbe_detail_iframe_hook.js"
+import D3BiChartHook from "./hooks/d3_bi_chart_hook.js"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
@@ -18,9 +18,9 @@ const liveSocket = new LiveSocket("/live", Socket, {
   params: { _csrf_token: csrfToken },
   hooks: {
     Mermaid: MermaidHook,
-    Scene2D: Scene2DHook,
     Scene3D: Scene3DHook,
     FbeDetailIframe: FbeDetailIframeHook,
+    D3BiChart: D3BiChartHook,
     ...colocatedHooks
   }
 })

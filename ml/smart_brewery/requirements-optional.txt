@@ -1,0 +1,7 @@
+# Dependências opcionais (artigo 16): TSFM pesado, explicabilidade, TDA completa
+# pip install -r requirements.txt -r requirements-optional.txt
+chronos-forecasting>=1.0
+transformers>=4.36
+accelerate>=0.25
+shap>=0.44
+giotto-tda>=0.6

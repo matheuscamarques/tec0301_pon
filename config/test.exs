@@ -25,6 +25,11 @@ config :phoenix_live_view,
 
 # TSDB desligado em teste (evita depender de Postgres nos testes que não usam Repo).
 config :simulacoes_visuais, :tsdb_enabled, false
+# Evita timers de refresh do painel BI nos testes de LiveView.
+config :simulacoes_visuais, :bi_dashboard_refresh_ms, 0
+
+# Não escrever log crítico em arquivo durante os testes.
+config :simulacoes_visuais, :critical_log_file, enabled: false
 
 # Configure your database (usado apenas se algum teste usar Repo)
 config :simulacoes_visuais, SimulacoesVisuais.Repo,

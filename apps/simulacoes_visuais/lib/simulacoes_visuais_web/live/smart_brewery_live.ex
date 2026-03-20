@@ -4,7 +4,7 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
   modelados com PON no `tec0301_pon`.
 
   Otimização de visibilidade:
-  - Apenas o painel ativo (`@view_mode`: tabela, diagramas, 2d, 3d) é renderizado; os outros
+  - Apenas o painel ativo (`@view_mode`: tabela, diagramas, 3d, bi) é renderizado; os outros
     não entram no DOM, evitando enviar e aplicar diffs em elementos invisíveis.
   - Seções com classe `scada-section-offscreen` usam `content-visibility: auto` para o
     navegador poder pular layout/paint quando fora da viewport.
@@ -12,10 +12,10 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
 
   use SimulacoesVisuaisWeb, :live_view
 
-  import SimulacoesVisuaisWeb.Components.SmartBrewerySvg2D
-
   alias Tec0301Pon.Examples.SmartBrewery
   alias Tec0301Pon.PON.Fato
+  alias SimulacoesVisuais.SmartBrewery.FatoDescriptions
+  alias SimulacoesVisuais.SmartBreweryBI
   alias SimulacoesVisuais.TelemetryEvent
 
   require Logger
@@ -23,8 +23,10 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
   @max_log_entries 10
   # Evita inundar o log com a mesma regra; só registra de novo após este intervalo (ms).
   @regra_log_cooldown_ms 2_000
+  # Duração do brilho visual após regra disparada.
+  @regra_flash_ms 1_200
   # Throttle: acumula {:batch} do LiveViewEventBatcher e aplica em um único flush a cada N ms.
-  @flush_pending_ms 180
+  # Config: :smart_brewery_live_flush_pending_ms em config.exs
 
   @fbe_descricoes %{
     1 => "Moinho_Malte",
@@ -99,11 +101,11 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
   }
 
   @view_modes [
-    {"tabela", "Tabela"},
-    {"diagramas", "Diagramas"},
-    {"2d", "Vista 2D"},
-    {"3d", "Vista 3D"},
-    {"bi", "Power BI"}
+    {"tabela", "Tabela", "Lista tabular de fatos e valores em tempo real."},
+    {"diagramas", "Diagramas", "Diagramas Mermaid do pipeline e das regras."},
+    {"3d", "Vista 3D", "Cena 3D do gêmeo digital; clique num equipamento para detalhes."},
+    {"bi", "BI (painel analítico)",
+     "Business Intelligence: gráficos e consultas analíticas sobre dados armazenados na aplicação."}
   ]
 
   @regras_list [
@@ -151,6 +153,8 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    _ = SimulacoesVisuais.SmartBrewery.CaseContext.new_session()
+
     # Lista fixa dos 57 fatos expostos pelo SmartBrewery.
     fatos_names = SmartBrewery.fatos_names()
 
@@ -173,7 +177,10 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
       end)
 
     initial_entry = log_entry("sistema", "LiveView conectada. Aguardando notificações PON.")
-    event_log_entries = [initial_entry]
+
+    bi_filters = SmartBreweryBI.default_filters()
+    bi_options = SmartBreweryBI.options()
+    bi_data = SmartBreweryBI.dashboard_data(bi_filters)
 
     socket =
       assign(socket,
@@ -188,15 +195,13 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
         regras_descricoes_longas: @regras_descricoes_longas,
         regra_expandida: nil,
         simulando: false,
-        monte_carlo_ativo: false,
+        monte_carlo_ativo: monte_carlo_ui_active?(socket),
         view_mode: "tabela",
         open_fbes: MapSet.new(),
-        scene_2d_selected_fbe: nil,
         scene_3d_selected_fbe: nil,
         scene_3d_hovered_fbe: nil,
-        event_log_entries: event_log_entries,
+        event_log_count: 1,
         max_log_entries: @max_log_entries,
-        event_log_empty?: false,
         oee_percent: SimulacoesVisuais.SmartBrewery.OEE.get(),
         oee_components: SimulacoesVisuais.SmartBrewery.OEE.get_components(),
         ema_control_limits: safe_ema_control_limits(),
@@ -209,11 +214,17 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
              check_tsdb_connection()) ||
             nil,
         last_regra_log_at: %{},
+        regra_flash_fbes: MapSet.new(),
+        regra_flash_timers: %{},
         pending_fato_updates: %{},
         flush_timer_ref: nil,
-        power_bi_report_url: Application.get_env(:simulacoes_visuais, :power_bi_report_url)
+        bi_filters: bi_filters,
+        bi_options: bi_options,
+        bi_data: bi_data,
+        bi_form: to_form(bi_filters, as: :bi_filters),
+        bi_refresh_timer_ref: nil
       )
-      |> stream(:event_log, event_log_entries, dom_id: fn e -> "log-#{e.id}" end)
+      |> stream(:event_log, [initial_entry], dom_id: fn e -> "log-#{e.id}" end)
       |> then(fn s ->
         cond do
           s.assigns.tsdb_enabled ->
@@ -313,6 +324,13 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
     last = Map.get(socket.assigns.last_regra_log_at, regra_id)
     skip? = last && DateTime.diff(now, last, :millisecond) < @regra_log_cooldown_ms
 
+    action_fbes =
+      @regras_fbe_map
+      |> Map.get(regra_id, %{})
+      |> Map.get(:action, [])
+
+    socket = flash_fbes_from_rule(socket, action_fbes)
+
     socket =
       if skip? do
         socket
@@ -325,6 +343,13 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
       end
 
     {:noreply, socket}
+  end
+
+  def handle_info({:clear_regra_flash_fbe, fbe_id}, socket) when is_integer(fbe_id) do
+    new_flash = MapSet.delete(socket.assigns.regra_flash_fbes, fbe_id)
+    new_timers = Map.delete(socket.assigns.regra_flash_timers, fbe_id)
+
+    {:noreply, assign(socket, regra_flash_fbes: new_flash, regra_flash_timers: new_timers)}
   end
 
   def handle_info(:check_tsdb_connection, socket) do
@@ -382,23 +407,71 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
     {:noreply, socket}
   end
 
+  def handle_info(:refresh_bi_dashboard, socket) do
+    socket = cancel_bi_dashboard_refresh(socket)
+
+    if socket.assigns.view_mode == "bi" and socket.assigns.tsdb_enabled and
+         bi_dashboard_refresh_ms() > 0 do
+      filters = socket.assigns.bi_filters
+      data = SmartBreweryBI.dashboard_data(filters)
+
+      {:noreply,
+       socket
+       |> assign(:bi_data, data)
+       |> schedule_bi_dashboard_refresh()}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("set_view", %{"mode" => mode}, socket)
-      when mode in ["tabela", "diagramas", "3d", "2d"] do
+      when mode in ["tabela", "diagramas", "3d", "bi"] do
+    prev_mode = socket.assigns.view_mode
+
     socket =
       socket
-      |> then(fn s -> if mode == "2d", do: s, else: assign(s, scene_2d_selected_fbe: nil) end)
       |> then(fn s -> if mode == "3d", do: s, else: assign(s, scene_3d_selected_fbe: nil) end)
+
+    socket =
+      if prev_mode == "bi" and mode != "bi" do
+        cancel_bi_dashboard_refresh(socket)
+      else
+        socket
+      end
+
+    socket =
+      if mode == "bi" do
+        filters = socket.assigns.bi_filters
+
+        socket
+        |> assign(:bi_options, SmartBreweryBI.options())
+        |> assign(:bi_data, SmartBreweryBI.dashboard_data(filters))
+        |> assign(:bi_form, to_form(filters, as: :bi_filters))
+        |> schedule_bi_dashboard_refresh()
+      else
+        socket
+      end
 
     {:noreply, assign(socket, view_mode: mode)}
   end
 
   @impl true
-  def handle_event("select_fbe_2d", params, socket) do
-    selected = parse_fbe_2d_id(Map.get(params, "id"))
-    {:noreply, assign(socket, scene_2d_selected_fbe: selected)}
+  def handle_event("bi_filters_change", %{"bi_filters" => params}, socket) do
+    filters = SmartBreweryBI.normalize_filters(params)
+    data = SmartBreweryBI.dashboard_data(filters)
+
+    socket =
+      socket
+      |> assign(:bi_filters, filters)
+      |> assign(:bi_data, data)
+      |> assign(:bi_form, to_form(filters, as: :bi_filters))
+      |> cancel_bi_dashboard_refresh()
+      |> schedule_bi_dashboard_refresh()
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -492,6 +565,10 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
     %{id: System.unique_integer([:positive]), at: at, type: type, msg: msg}
   end
 
+  defp monte_carlo_ui_active?(socket) do
+    connected?(socket) && SimulacoesVisuais.SmartBreweryMonteCarlo.running?()
+  end
+
   defp check_tsdb_connection do
     case SimulacoesVisuais.Repo.query("SELECT 1") do
       {:ok, _} -> true
@@ -575,12 +652,42 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
   defp to_sparkline_number(_), do: nil
 
   defp append_event_log(socket, entry) do
-    new_list = [entry | socket.assigns.event_log_entries] |> Enum.take(@max_log_entries)
+    new_count = min(@max_log_entries, socket.assigns.event_log_count + 1)
 
     socket
-    |> assign(:event_log_entries, new_list)
-    |> assign(:event_log_empty?, false)
+    |> assign(:event_log_count, new_count)
     |> stream_insert(:event_log, entry, at: 0, limit: -@max_log_entries)
+  end
+
+  defp flush_pending_ms do
+    Application.get_env(:simulacoes_visuais, :smart_brewery_live_flush_pending_ms, 280)
+  end
+
+  defp bi_dashboard_refresh_ms do
+    case Application.get_env(:simulacoes_visuais, :bi_dashboard_refresh_ms, 10_000) do
+      n when is_integer(n) and n > 0 -> n
+      _ -> 0
+    end
+  end
+
+  defp cancel_bi_dashboard_refresh(socket) do
+    case socket.assigns.bi_refresh_timer_ref do
+      ref when is_reference(ref) -> Process.cancel_timer(ref)
+      _ -> :ok
+    end
+
+    assign(socket, :bi_refresh_timer_ref, nil)
+  end
+
+  defp schedule_bi_dashboard_refresh(socket) do
+    ms = bi_dashboard_refresh_ms()
+
+    if ms > 0 && socket.assigns.tsdb_enabled do
+      ref = Process.send_after(self(), :refresh_bi_dashboard, ms)
+      assign(socket, :bi_refresh_timer_ref, ref)
+    else
+      assign(socket, :bi_refresh_timer_ref, nil)
+    end
   end
 
   defp add_pending_and_schedule_flush(socket, new_updates) when new_updates != %{} do
@@ -590,7 +697,7 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
     if socket.assigns.flush_timer_ref do
       socket
     else
-      ref = Process.send_after(self(), :flush_pending_fatos, @flush_pending_ms)
+      ref = Process.send_after(self(), :flush_pending_fatos, flush_pending_ms())
       assign(socket, :flush_timer_ref, ref)
     end
   end
@@ -644,7 +751,7 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
 
   # Facts for the iframe "Modelo 3D detalhado" (postMessage payload).
   defp fbe_facts_for_iframe(assigns) do
-    fbe_id = assigns[:scene_2d_selected_fbe] || assigns[:scene_3d_selected_fbe]
+    fbe_id = assigns[:scene_3d_selected_fbe]
 
     if is_nil(fbe_id) or is_nil(Map.get(assigns.fbe_static_3d_url, fbe_id)) do
       []
@@ -653,7 +760,11 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
       nomes = fatos_por_fbe[fbe_id] || []
 
       Enum.map(nomes, fn nome ->
-        %{label: attr_label(nome), value: format_value(assigns.fatos[nome])}
+        %{
+          label: attr_label(nome),
+          description: FatoDescriptions.descricao(nome),
+          value: format_value(assigns.fatos[nome])
+        }
       end)
     end
   end
@@ -663,7 +774,7 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
     nomes = fatos_por_fbe[fbe_id] || []
 
     Enum.map(nomes, fn nome ->
-      {attr_label(nome), format_value(assigns.fatos[nome])}
+      {attr_label(nome), FatoDescriptions.descricao(nome), format_value(assigns.fatos[nome])}
     end)
   end
 
@@ -701,81 +812,19 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
   defp fbe_tile_key_fact(11), do: :fbe_11_grid_power_cost
   defp fbe_tile_key_fact(_), do: nil
 
-  # Variáveis CSS para animações 2D reagirem a velocidade, pressão, temperatura e nível.
-  defp svg_animation_style(fatos) do
-    rpm = get_num(fatos, :fbe_01_motor_rpm, 0)
-    pump = get_num(fatos, :fbe_03_pump_speed, 0)
-    conveyor = get_num(fatos, :fbe_08_conveyor_speed, 0)
-    flow_vel = get_num(fatos, :fbe_09_flow_velocity, 0)
-    # Factor global: rotações e líquidos aceleram com rpm, bomba e esteira
-    factor = (rpm / 500.0 + pump / 50.0 + conveyor / 100.0) / 3.0
-    factor = max(0.15, min(2.5, factor))
-    conv_factor = max(0.15, min(2.0, conveyor / 100.0))
-    flow_factor = max(0.2, min(2.0, 0.5 + flow_vel / 10.0))
+  defp flash_fbes_from_rule(socket, []), do: socket
 
-    # Temperatura: mash_temp (0–100°C) e boil_temp (0–105°C) → 0–1 para vapor/bolhas e path-hot
-    mash_temp = get_num(fatos, :fbe_02_mash_temp, 0)
-    boil_temp = get_num(fatos, :fbe_04_boil_temp, 0)
-    temp_factor = (mash_temp / 100.0 + boil_temp / 105.0) / 2.0
-    temp_factor = max(0, min(1, temp_factor))
+  defp flash_fbes_from_rule(socket, fbe_ids) when is_list(fbe_ids) do
+    Enum.reduce(fbe_ids, socket, fn fbe_id, acc ->
+      old_ref = Map.get(acc.assigns.regra_flash_timers, fbe_id)
+      if old_ref, do: Process.cancel_timer(old_ref)
 
-    # Pressão: diff_pressure (40–200 mbar), steam_pressure (0–5 bar) → 0–1 para espessura/opacidade
-    diff_p = get_num(fatos, :fbe_03_diff_pressure, 80)
-    steam_p = get_num(fatos, :fbe_04_steam_pressure, 0)
-    pressure_factor = ((diff_p - 40) / 160.0 + steam_p / 5.0) / 2.0
-    pressure_factor = max(0, min(1, pressure_factor))
+      timer_ref = Process.send_after(self(), {:clear_regra_flash_fbe, fbe_id}, @regra_flash_ms)
 
-    # Níveis (0–100) → 0–1 para scaleY de líquido/espuma
-    liquid_level = get_num(fatos, :fbe_02_liquid_level, 0)
-    hopper_level = get_num(fatos, :fbe_01_hopper_level, 80)
-    foam_level = get_num(fatos, :fbe_04_foam_level, 0)
-    level_mostura = max(0.05, min(1, liquid_level / 100.0))
-    level_hopper = max(0.05, min(1, hopper_level / 100.0))
-    level_foam = max(0, min(1, foam_level / 100.0))
-
-    [
-      "--speed-factor: #{:erlang.float_to_binary(factor * 1.0, decimals: 3)}",
-      "--conveyor-speed: #{:erlang.float_to_binary(conv_factor * 1.0, decimals: 3)}",
-      "--flow-speed: #{:erlang.float_to_binary(flow_factor * 1.0, decimals: 3)}",
-      "--temp-factor: #{:erlang.float_to_binary(temp_factor * 1.0, decimals: 3)}",
-      "--pressure-factor: #{:erlang.float_to_binary(pressure_factor * 1.0, decimals: 3)}",
-      "--level-mostura: #{:erlang.float_to_binary(level_mostura * 1.0, decimals: 3)}",
-      "--level-hopper: #{:erlang.float_to_binary(level_hopper * 1.0, decimals: 3)}",
-      "--level-foam: #{:erlang.float_to_binary(level_foam * 1.0, decimals: 3)}"
-    ]
-    |> Enum.join("; ")
-  end
-
-  defp get_num(fatos, key, default) do
-    case Map.get(fatos, key) do
-      n when is_number(n) -> n * 1.0
-      _ -> default * 1.0
-    end
-  end
-
-  # Mapa de IDs do SVG integrado (val-*) para valor formatado a partir de @fatos.
-  defp svg_2d_telemetry(fatos) do
-    [
-      {"val-load", :fbe_11_main_load_draw},
-      {"val-cost", :fbe_11_grid_power_cost},
-      {"val-rpm", :fbe_01_motor_rpm},
-      {"val-vib", :fbe_01_vibration_level},
-      {"val-hop", :fbe_01_hopper_level},
-      {"val-mash-temp", :fbe_02_mash_temp},
-      {"val-flow", :fbe_02_water_flow_rate},
-      {"val-press", :fbe_03_diff_pressure},
-      {"val-pump", :fbe_03_pump_speed},
-      {"val-boil-temp", :fbe_04_boil_temp},
-      {"val-evap", :fbe_04_evaporation_rate},
-      {"val-heat-in", :fbe_05_wort_in_temp},
-      {"val-heat-out", :fbe_05_wort_out_temp},
-      {"val-ferm-a", :fbe_06_internal_temp},
-      {"val-ferm-b", :fbe_07_internal_temp},
-      {"val-cond", :fbe_09_return_conduct},
-      {"val-bpm", :fbe_08_conveyor_speed},
-      {"val-bat", :fbe_10_robot_1_battery}
-    ]
-    |> Enum.into(%{}, fn {id, key} -> {id, format_value(Map.get(fatos, key))} end)
+      acc
+      |> assign(:regra_flash_fbes, MapSet.put(acc.assigns.regra_flash_fbes, fbe_id))
+      |> assign(:regra_flash_timers, Map.put(acc.assigns.regra_flash_timers, fbe_id, timer_ref))
+    end)
   end
 
   defp fbe_descricao(fbe_id) do
@@ -950,6 +999,95 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
     Enum.join(lines, "\n")
   end
 
+  defp bi_d3_ts_iso(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+
+  defp bi_d3_ts_iso(%NaiveDateTime{} = ndt), do: NaiveDateTime.to_iso8601(ndt)
+
+  defp bi_d3_ts_iso(t) when is_binary(t), do: t
+  defp bi_d3_ts_iso(_), do: nil
+
+  defp bi_d3_num(%Decimal{} = d), do: Decimal.to_float(d)
+  defp bi_d3_num(v) when is_number(v), do: v * 1.0
+  defp bi_d3_num(_), do: nil
+
+  defp bi_d3_oee_payload(oee_trend) when is_list(oee_trend) do
+    rows =
+      oee_trend
+      |> Enum.map(fn r ->
+        %{
+          t: bi_d3_ts_iso(Map.get(r, :ts)),
+          oee: bi_d3_num(Map.get(r, :oee)),
+          availability: bi_d3_num(Map.get(r, :availability)),
+          performance: bi_d3_num(Map.get(r, :performance)),
+          quality: bi_d3_num(Map.get(r, :quality))
+        }
+      end)
+      |> Enum.reject(&(is_nil(&1.t) or &1.t == ""))
+
+    %{
+      kind: "multi_y",
+      rows: rows,
+      series: [
+        %{key: "oee", color: "primary", label: "OEE"},
+        %{key: "availability", color: "success", label: "A · disponibilidade"},
+        %{key: "performance", color: "warning", label: "P · desempenho"},
+        %{key: "quality", color: "info", label: "Q · qualidade"}
+      ]
+    }
+  end
+
+  defp bi_d3_telemetry_payload(telemetry_trend) when is_list(telemetry_trend) do
+    rows =
+      telemetry_trend
+      |> Enum.map(fn r ->
+        %{t: bi_d3_ts_iso(Map.get(r, :ts)), y: bi_d3_num(Map.get(r, :value))}
+      end)
+      |> Enum.reject(&(is_nil(&1.t) or &1.t == "" or is_nil(&1.y)))
+
+    %{kind: "single_y", rows: rows, color: "secondary"}
+  end
+
+  defp bi_d3_ref_line(v, color, dash?) do
+    case bi_d3_num(v) do
+      nil ->
+        nil
+
+      vf ->
+        m = %{value: vf, color: color}
+        if dash?, do: Map.put(m, :dash, true), else: m
+    end
+  end
+
+  defp bi_d3_cep_payload(cep) when is_map(cep) do
+    points = Map.get(cep, :points, [])
+
+    rows =
+      points
+      |> Enum.map(fn r ->
+        %{t: bi_d3_ts_iso(Map.get(r, :ts)), y: bi_d3_num(Map.get(r, :value))}
+      end)
+      |> Enum.reject(&(is_nil(&1.t) or &1.t == "" or is_nil(&1.y)))
+
+    ref_lines =
+      [
+        bi_d3_ref_line(Map.get(cep, :cl), "base-content", false),
+        bi_d3_ref_line(Map.get(cep, :ucl), "warning", true),
+        bi_d3_ref_line(Map.get(cep, :lcl), "warning", true)
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    %{kind: "cep", rows: rows, color: "accent", ref_lines: ref_lines}
+  end
+
+  defp bi_max_total([]), do: 1
+
+  defp bi_max_total(items) do
+    items
+    |> Enum.map(&Map.get(&1, :total, 0))
+    |> Enum.max(fn -> 1 end)
+    |> max(1)
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -967,11 +1105,31 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                 <.icon name="hero-arrow-left" class="size-5" />
               </.link>
               <div>
-                <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-base-content">
-                  Gêmeo Digital · Smart Brewery
+                <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-base-content flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
+                  <.tech_term term={:gemeo_digital} aria_describedby_glossary />
+                  <span class="text-base-content/50 font-normal">·</span>
+                  <span>Smart Brewery</span>
                 </h1>
-                <p class="text-sm text-base-content/70 mt-0.5">
-                  PON · 57 fatos, 12 regras · atualizações em tempo real
+                <p class="text-sm text-base-content/70 mt-0.5 flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
+                  <.tech_term term={:pon} aria_describedby_glossary />
+                  <span class="text-base-content/50">·</span>
+                  <span>57</span>
+                  <.tech_term
+                    term={:fato_pon}
+                    text="fatos"
+                    aria_describedby_glossary
+                    show_glossary_link
+                  />
+                  <span class="text-base-content/50">,</span>
+                  <span>12</span>
+                  <.tech_term
+                    term={:regra_pon}
+                    text="regras"
+                    aria_describedby_glossary
+                    show_glossary_link
+                  />
+                  <span class="text-base-content/50">·</span>
+                  <span>atualizações em tempo real</span>
                 </p>
               </div>
             </div>
@@ -984,7 +1142,13 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                       <span class="badge badge-warning gap-1 animate-pulse">Simulando</span>
                     <% else %>
                       <%= if @monte_carlo_ativo do %>
-                        <span class="badge badge-info gap-1 animate-pulse">Monte Carlo</span>
+                        <span class="badge badge-info gap-1 animate-pulse inline-flex items-center">
+                          <.tech_term
+                            term={:monte_carlo}
+                            aria_describedby_glossary
+                            class="decoration-white/50 border-white/30"
+                          />
+                        </span>
                       <% else %>
                         <span class="badge badge-success gap-1">Pronto</span>
                       <% end %>
@@ -999,8 +1163,8 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                   phx-click-loading
                   class="btn btn-outline btn-error gap-2 font-semibold transition-colors"
                 >
-                  <.icon name="hero-stop" class="size-5 phx-click-loading:animate-spin" />
-                  Parar Monte Carlo
+                  <.icon name="hero-stop" class="size-5 phx-click-loading:animate-spin" /> Parar
+                  <.tech_term term={:monte_carlo} aria_describedby_glossary />
                 </button>
               <% else %>
                 <button
@@ -1015,7 +1179,7 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                   ]}
                 >
                   <.icon name="hero-arrow-path" class="size-5 phx-click-loading:animate-spin" />
-                  Iniciar Monte Carlo
+                  Iniciar <.tech_term term={:monte_carlo} aria_describedby_glossary />
                 </button>
               <% end %>
               <button
@@ -1040,8 +1204,25 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
             class="rounded-xl scada-surface p-4 border border-base-200/50"
             aria-label="O que é PON"
           >
-            <p class="text-sm text-base-content/80">
-              No <strong>PON (Paradigma Orientado a Notificações)</strong>, os <strong>FBEs</strong> (Elementos de Base de Fatos) são entidades que representam estado e serviços do domínio: cada atributo notifica apenas as regras que o observam quando seu valor muda; os métodos do FBE são instigados pelas regras. As <strong>Regras</strong> agregam condições (premissas sobre os fatos) e ações: uma regra só é avaliada quando algum atributo que ela observa notifica uma mudança; se a condição for verdadeira, a ação executa e instiga métodos nos FBEs.
+            <p class="text-sm text-base-content/80 leading-relaxed">
+              No <.tech_term term={:pon} aria_describedby_glossary show_glossary_link />
+              <span class="text-base-content/60"> (Paradigma Orientado a Notificações)</span>, os
+              <.tech_term term={:fbe} text="FBEs" aria_describedby_glossary show_glossary_link />
+              <span class="text-base-content/60"> (Elementos de Base de Fatos)</span>
+              são entidades que representam estado e serviços do domínio: cada atributo notifica apenas as regras que o observam quando seu valor muda; os métodos do FBE são instigados pelas regras. As
+              <.tech_term
+                term={:regra_pon}
+                text="Regras"
+                aria_describedby_glossary
+                show_glossary_link
+              />
+              agregam condições (<.tech_term
+                term={:premissa_pon}
+                text="premissas"
+                aria_describedby_glossary
+                show_glossary_link
+              /> sobre os
+              <.tech_term term={:fato_pon} text="fatos" aria_describedby_glossary />) e ações: uma regra só é avaliada quando algum atributo que ela observa notifica uma mudança; se a condição for verdadeira, a ação executa e instiga métodos nos FBEs.
             </p>
           </section>
 
@@ -1051,7 +1232,9 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
             aria-label="OEE e status"
           >
             <div class="flex items-center gap-3">
-              <span class="text-sm font-semibold text-base-content/80">OEE</span>
+              <span class="text-sm font-semibold text-base-content/80">
+                <.tech_term term={:oee} aria_describedby_glossary />
+              </span>
               <div class="flex items-center gap-2 min-w-[120px]">
                 <%= if @oee_percent != nil do %>
                   <span class="text-2xl font-bold tabular-nums">
@@ -1063,24 +1246,32 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
               </div>
               <%= if @oee_components != nil do %>
                 <div class="flex items-center gap-3 text-xs text-base-content/70 border-l border-base-content/20 pl-3">
-                  <span title="Disponibilidade (Nakajima)">
-                    A: {format_scada_number((@oee_components[:availability] || 0) * 100)}%
+                  <span class="inline-flex items-baseline gap-0.5 tabular-nums">
+                    <.tech_term term={:oee_availability} text="A" aria_describedby_glossary />: {format_scada_number(
+                      (@oee_components[:availability] || 0) * 100
+                    )}%
                   </span>
-                  <span title="Performance">
-                    P: {format_scada_number((@oee_components[:performance] || 0) * 100)}%
+                  <span class="inline-flex items-baseline gap-0.5 tabular-nums">
+                    <.tech_term term={:oee_performance} text="P" aria_describedby_glossary />: {format_scada_number(
+                      (@oee_components[:performance] || 0) * 100
+                    )}%
                   </span>
-                  <span title="Qualidade">
-                    Q: {format_scada_number((@oee_components[:quality] || 0) * 100)}%
+                  <span class="inline-flex items-baseline gap-0.5 tabular-nums">
+                    <.tech_term term={:oee_quality} text="Q" aria_describedby_glossary />: {format_scada_number(
+                      (@oee_components[:quality] || 0) * 100
+                    )}%
                   </span>
                 </div>
               <% end %>
             </div>
             <div class="flex items-center gap-2 border-l border-base-content/20 pl-4">
               <span class="text-xs text-base-content/60">Status</span>
-              <span class="flex items-center gap-1.5" title="Conexão LiveView">
+              <span class="flex items-center gap-1.5">
                 <span class="size-2.5 rounded-full bg-success animate-pulse" aria-hidden="true">
                 </span>
-                <span class="text-xs">Conexão</span>
+                <span class="text-xs">
+                  <.tech_term term={:liveview} text="Conexão" aria_describedby_glossary />
+                </span>
               </span>
               <%= if @tsdb_enabled do %>
                 <span
@@ -1097,7 +1288,9 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                     aria-hidden="true"
                   >
                   </span>
-                  <span class="text-xs">TSDB</span>
+                  <span class="text-xs">
+                    <.tech_term term={:tsdb} aria_describedby_glossary />
+                  </span>
                 </span>
               <% end %>
               <span
@@ -1118,7 +1311,9 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                   aria-hidden="true"
                 >
                 </span>
-                <span class="text-xs">Grid</span>
+                <span class="text-xs">
+                  <.tech_term term={:smart_grid} text="Grid" aria_describedby_glossary />
+                </span>
               </span>
             </div>
             <%= if map_size(@ema_control_limits) > 0 do %>
@@ -1126,7 +1321,9 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                 class="flex flex-wrap items-center gap-2 border-l border-base-content/20 pl-4 text-xs text-base-content/60"
                 title="Limites de controle SPC (3σ)"
               >
-                <span class="font-medium">SPC</span>
+                <span class="font-medium">
+                  <.tech_term term={:spc} aria_describedby_glossary />
+                </span>
                 <%= for {nome, lim} <- Enum.take(@ema_control_limits, 4) do %>
                   <span
                     class="font-mono"
@@ -1156,6 +1353,7 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                 <div
                   class={[
                     "scada-tile scada-surface rounded-lg p-3 border border-base-200 transition-colors duration-200",
+                    MapSet.member?(@regra_flash_fbes, fbe_id) && "scada-rule-flash",
                     status == :critical && "scada-critical scada-critical-pulse",
                     (status == :warning || anomalia?) && status != :critical && "scada-warning",
                     status == :active && !anomalia? && status != :critical && "scada-surface-hover"
@@ -1164,15 +1362,21 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                   aria-label={"FBE #{fbe_id} #{fbe_descricao(fbe_id)}"}
                 >
                   <div class="flex items-center justify-between gap-1">
-                    <span class="text-xs font-mono text-base-content/70">FBE_{pad2(fbe_id)}</span>
+                    <span class="text-xs font-mono text-base-content/70">
+                      <.tech_term
+                        term={:fbe}
+                        text={"FBE_#{pad2(fbe_id)}"}
+                        aria_describedby_glossary
+                      />
+                    </span>
                     <span class="flex items-center gap-1 shrink-0">
                       <%= if anomalia? do %>
-                        <span
-                          class="text-warning"
-                          title="Anomalia detectada"
-                          aria-label="Anomalia"
-                        >
-                          <.icon name="hero-exclamation-triangle" class="size-4" />
+                        <span class="text-warning" aria-label="Anomalia detectada">
+                          <.technical_hint title={
+                            SimulacoesVisuaisWeb.TechGlossary.entry!(:anomalia_processo).abbr_title
+                          }>
+                            <.icon name="hero-exclamation-triangle" class="size-4" />
+                          </.technical_hint>
                         </span>
                       <% end %>
                       <span
@@ -1201,7 +1405,11 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                   </div>
                   <%!-- Mini gráfico simples (sparkline) em preto e branco --%>
                   <%= if (pts = Map.get(@sparkline_data, fbe_id, [])) != [] do %>
-                    <div class="mt-1.5 h-6 w-full min-h-[24px]" aria-hidden="true">
+                    <div
+                      class="mt-1.5 h-6 w-full min-h-[24px]"
+                      aria-hidden="true"
+                      title={SimulacoesVisuaisWeb.TechGlossary.entry!(:sparkline).abbr_title}
+                    >
                       <svg
                         class="w-full h-full block"
                         viewBox="0 0 80 24"
@@ -1225,19 +1433,20 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
             <% end %>
           </section>
 
-          <%!-- Tabs: Vista tabela | Vista diagramas | Vista 2D | Vista 3D (acessível) --%>
+          <%!-- Tabs: Vista tabela | Vista diagramas | Vista 3D | BI --%>
           <div
             role="tablist"
             aria-label="Modo de visualização"
             class="tabs tabs-boxed bg-base-200/50 p-1 rounded-lg w-fit flex flex-wrap gap-0.5"
           >
-            <%= for {mode, label} <- @view_modes do %>
+            <%= for {mode, label, tab_title} <- @view_modes do %>
               <button
                 type="button"
                 role="tab"
                 aria-selected={@view_mode == mode}
                 aria-controls={"panel-#{mode}"}
                 id={"tab-#{mode}"}
+                title={tab_title}
                 phx-click="set_view"
                 phx-value-mode={mode}
                 class={[
@@ -1245,7 +1454,15 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                   @view_mode == mode && "tab-active"
                 ]}
               >
-                {label}
+                <%= case mode do %>
+                  <% "bi" -> %>
+                    <span class="inline-flex flex-wrap items-center gap-x-1 gap-y-0 justify-center">
+                      <.tech_term term={:bi} aria_describedby_glossary />
+                      <span class="text-base-content/70 font-normal">(painel analítico)</span>
+                    </span>
+                  <% _ -> %>
+                    {label}
+                <% end %>
               </button>
             <% end %>
           </div>
@@ -1253,7 +1470,10 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
           <%!-- Regras (resumo) — R_01 a R_12 (Artigo 05 e 11). content-visibility: otimiza quando fora da viewport. --%>
           <section class="scada-section-offscreen grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             <%= for {regra_id, title, description} <- @regras_list do %>
-              <div class="card bg-base-100 shadow-sm border border-base-200">
+              <div
+                class="card bg-base-100 shadow-sm border border-base-200"
+                title="Nomes em inglês (ex.: diff_pressure, v2g) são atributos dos FBEs no modelo PON. Siglas como AMR, V2G, LMTD, CIP, NR-13 e ISA-88 estão no glossário no final da página."
+              >
                 <div class="card-body py-3 px-4">
                   <div class="flex items-center gap-2">
                     <span class="badge badge-ghost badge-sm font-mono">R_{pad2(regra_id)}</span>
@@ -1270,10 +1490,14 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                     aria-expanded={@regra_expandida == regra_id}
                   >
                     <.icon
-                      name={if @regra_expandida == regra_id, do: "hero-chevron-down", else: "hero-chevron-right"}
+                      name={
+                        if @regra_expandida == regra_id,
+                          do: "hero-chevron-down",
+                          else: "hero-chevron-right"
+                      }
                       class="size-3.5"
                     />
-                    <%= if @regra_expandida == regra_id, do: "Ocultar", else: "Como funciona" %>
+                    {if @regra_expandida == regra_id, do: "Ocultar", else: "Como funciona"}
                   </button>
                   <%= if @regra_expandida == regra_id do %>
                     <p class="text-xs text-base-content/70 mt-2 pt-2 border-t border-base-200">
@@ -1297,7 +1521,11 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
               <div class="card-body p-0">
                 <div class="px-4 py-2 border-b border-base-200 flex flex-col gap-1">
                   <div class="flex items-center gap-2">
-                    <span class="font-semibold text-sm">Vista 3D · Smart Brewery (Digital Twin)</span>
+                    <span class="font-semibold text-sm inline-flex flex-wrap items-baseline gap-x-1 gap-y-0">
+                      <span>Vista 3D · Smart Brewery (</span>
+                      <.tech_term term={:digital_twin_en} aria_describedby_glossary />
+                      <span>)</span>
+                    </span>
                     <span class="text-xs text-base-content/70">
                       Arraste para orbitar · roda para zoom · clique num equipamento
                     </span>
@@ -1340,7 +1568,11 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                               <tbody>
                                 <%= for {fbe_id, nomes} <- @fatos_por_fbe, fbe_id == @scene_3d_hovered_fbe, nome <- nomes do %>
                                   <tr>
-                                    <td class="font-mono text-xs py-0.5">{attr_label(nome)}</td>
+                                    <td class="font-mono text-xs py-0.5">
+                                      <.technical_hint title={FatoDescriptions.descricao(nome)}>
+                                        {attr_label(nome)}
+                                      </.technical_hint>
+                                    </td>
                                     <td class="text-right font-mono text-xs py-0.5">
                                       {format_value(@fatos[nome])}
                                     </td>
@@ -1383,97 +1615,366 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
             </div>
           <% else %>
             <%= if @view_mode == "bi" do %>
-              <%!-- Aba Power BI: embed do relatório ou instruções (artigo 14). --%>
+              <%!-- Aba BI nativa (sem iframe): OEE, séries, CEP, correlação, sinótico, eventos. --%>
               <div
                 id="panel-bi"
                 role="tabpanel"
                 aria-labelledby="tab-bi"
-                class="scada-section-offscreen card bg-base-100 shadow-sm border border-base-200 overflow-hidden"
+                class="scada-section-offscreen space-y-4"
               >
-                <div class="card-body p-0">
-                  <%= if @power_bi_report_url do %>
-                    <div class="px-4 py-2 border-b border-base-200 flex items-center gap-2">
-                      <span class="font-semibold text-sm">Power BI · Smart Brewery</span>
-                      <span class="text-xs text-base-content/70">Relatório embutido</span>
+                <div class="card bg-base-100 shadow-sm border border-base-200">
+                  <div class="card-body">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                      <h2 class="card-title text-base flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                        <.tech_term term={:bi} aria_describedby_glossary />
+                        <span class="text-base-content/50 font-normal">Nativo · Smart Brewery</span>
+                      </h2>
+                      <span class="text-xs text-base-content/60 inline-flex flex-wrap items-baseline gap-x-1">
+                        <span>Dashboard em</span>
+                        <.tech_term term={:liveview} aria_describedby_glossary />
+                        <span>(sem iframe)</span>
+                      </span>
                     </div>
-                    <div id="power-bi-embed-wrapper" class="min-h-[480px] w-full" phx-update="ignore">
-                      <iframe
-                        src={@power_bi_report_url}
-                        title="Relatório Power BI Smart Brewery"
-                        class="w-full min-h-[480px] border-0"
-                        style="height: 60vh;"
-                      >
-                      </iframe>
-                    </div>
-                  <% else %>
-                    <div class="p-6 space-y-4">
-                      <div class="flex items-center gap-2">
-                        <.icon name="hero-chart-bar" class="size-8 text-base-content/50" />
-                        <h2 class="font-semibold text-lg">Power BI</h2>
+                    <.form for={@bi_form} id="bi-filters-form" phx-change="bi_filters_change">
+                      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        <.input
+                          field={@bi_form[:window]}
+                          type="select"
+                          label="Janela"
+                          options={[
+                            {"Últimas 6h", "6h"},
+                            {"Últimas 24h", "24h"},
+                            {"Últimos 7d", "7d"},
+                            {"Últimos 30d", "30d"}
+                          ]}
+                        />
+                        <.input
+                          field={@bi_form[:granularity]}
+                          type="select"
+                          label="Granularidade"
+                          options={[
+                            {"1 minuto", "1min"},
+                            {"1 hora", "1h"},
+                            {"1 dia", "1day"}
+                          ]}
+                        />
+                        <.input
+                          field={@bi_form[:fbe_id]}
+                          type="select"
+                          label="Equipamento (FBE)"
+                          options={[{"Todos", "all"} | @bi_options.fbe]}
+                        />
+                        <.input
+                          field={@bi_form[:fact_name]}
+                          type="select"
+                          label="Variável"
+                          options={[{"Todas", "all"} | @bi_options.facts]}
+                        />
                       </div>
-                      <p class="text-sm text-base-content/80">
-                        O relatório Power BI pode ser exibido nesta aba após configurar a URL de embed.
-                        Defina <code class="rounded bg-base-200 px-1 font-mono text-xs">config :simulacoes_visuais, power_bi_report_url: "https://..."</code> na configuração da aplicação
-                        (Power BI Service ou &quot;Publish to web&quot;).
-                      </p>
-                      <p class="text-sm text-base-content/70">
-                        Para conexão ao banco, Star Schema, OEE e relatórios, consulte o guia no repositório:
-                        <code class="rounded bg-base-200 px-1 font-mono text-xs">docs/artigos/14_guia_power_bi_smart_brewery.md</code>.
-                      </p>
-                    </div>
-                  <% end %>
+                    </.form>
+                  </div>
                 </div>
-              </div>
-            <% else %>
-            <%= if @view_mode == "2d" do %>
-              <%!-- Vista 2D: modelo SVG integrado com telemetria e phx-click por FBE --%>
-              <div
-                id="panel-2d"
-                role="tabpanel"
-                aria-labelledby="tab-2d"
-                class="scada-section-offscreen card bg-base-100 shadow-sm border border-base-200 overflow-hidden"
-              >
-                <div class="card-body p-0">
-                  <div class="px-4 py-2 border-b border-base-200 flex items-center gap-2">
-                    <span class="font-semibold text-sm">Vista 2D · Smart Brewery (SVG)</span>
-                    <span class="text-xs text-base-content/70">
-                      Clique num equipamento para detalhes · telemetria em tempo real
-                    </span>
-                  </div>
-                  <div class="flex flex-col lg:flex-row gap-0 min-h-[400px]">
-                    <div class="flex-1 min-h-[400px] p-2">
-                      <.svg_2d
-                        svg_values={svg_2d_telemetry(@fatos)}
-                        selected_fbe={@scene_2d_selected_fbe}
-                        animation_style={svg_animation_style(@fatos)}
-                      />
+
+                <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                  <div class="card bg-base-100 shadow-sm border border-base-200">
+                    <div class="card-body py-3">
+                      <div class="text-xs text-base-content/60">
+                        <.tech_term term={:oee} aria_describedby_glossary /> (atual)
+                      </div>
+                      <div class="text-2xl font-bold tabular-nums">
+                        {format_scada_number(@bi_data.oee_cards.latest.oee)}%
+                      </div>
                     </div>
-                    <%= if @scene_2d_selected_fbe do %>
-                      <.fbe_detail_panel
-                        part={:sidebar}
-                        id="fbe-detail-2d-wrapper"
-                        fbe_heading={"Detalhe FBE_#{pad2(@scene_2d_selected_fbe)}"}
-                        fbe_label={fbe_descricao(@scene_2d_selected_fbe)}
-                        fbe_descricao_long={Map.get(@fbe_descricoes_longas, @scene_2d_selected_fbe, "")}
-                        rows={fbe_detail_rows(assigns, @scene_2d_selected_fbe)}
-                        selected_fbe={@scene_2d_selected_fbe}
-                        iframe_facts={fbe_facts_for_iframe(assigns)}
-                        static_3d_url={Map.get(@fbe_static_3d_url, @scene_2d_selected_fbe)}
-                      />
-                    <% end %>
                   </div>
-                  <%= if @scene_2d_selected_fbe && Map.get(@fbe_static_3d_url, @scene_2d_selected_fbe) do %>
-                    <.fbe_detail_panel
-                      part={:iframe}
-                      id="fbe-detail-2d-wrapper"
-                      fbe_heading={"Detalhe FBE_#{pad2(@scene_2d_selected_fbe)}"}
-                      fbe_label={fbe_descricao(@scene_2d_selected_fbe)}
-                      rows={fbe_detail_rows(assigns, @scene_2d_selected_fbe)}
-                      selected_fbe={@scene_2d_selected_fbe}
-                      iframe_facts={fbe_facts_for_iframe(assigns)}
-                      static_3d_url={Map.get(@fbe_static_3d_url, @scene_2d_selected_fbe)}
-                    />
-                  <% end %>
+                  <div class="card bg-base-100 shadow-sm border border-base-200">
+                    <div class="card-body py-3">
+                      <div class="text-xs text-base-content/60">
+                        <.tech_term
+                          term={:oee_availability}
+                          text="Disponibilidade (A)"
+                          aria_describedby_glossary
+                        />
+                      </div>
+                      <div class="text-xl font-semibold tabular-nums">
+                        {format_scada_number(@bi_data.oee_cards.latest.availability)}%
+                      </div>
+                    </div>
+                  </div>
+                  <div class="card bg-base-100 shadow-sm border border-base-200">
+                    <div class="card-body py-3">
+                      <div class="text-xs text-base-content/60">
+                        <.tech_term
+                          term={:oee_performance}
+                          text="Performance (P)"
+                          aria_describedby_glossary
+                        />
+                      </div>
+                      <div class="text-xl font-semibold tabular-nums">
+                        {format_scada_number(@bi_data.oee_cards.latest.performance)}%
+                      </div>
+                    </div>
+                  </div>
+                  <div class="card bg-base-100 shadow-sm border border-base-200">
+                    <div class="card-body py-3">
+                      <div class="text-xs text-base-content/60">
+                        <.tech_term
+                          term={:oee_quality}
+                          text="Qualidade (Q)"
+                          aria_describedby_glossary
+                        />
+                      </div>
+                      <div class="text-xl font-semibold tabular-nums">
+                        {format_scada_number(@bi_data.oee_cards.latest.quality)}%
+                      </div>
+                    </div>
+                  </div>
+                  <div class="card bg-base-100 shadow-sm border border-base-200">
+                    <div class="card-body py-3">
+                      <div class="text-xs text-base-content/60">
+                        <.tech_term
+                          term={:anomalia_processo}
+                          text="Anomalias"
+                          aria_describedby_glossary
+                        />
+                      </div>
+                      <div class="text-xl font-semibold tabular-nums">
+                        {@bi_data.totals.anomalies}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="card bg-base-100 shadow-sm border border-base-200">
+                    <div class="card-body py-3">
+                      <div class="text-xs text-base-content/60">
+                        <.tech_term
+                          term={:regra_pon}
+                          text="Regras disparadas"
+                          aria_describedby_glossary
+                        />
+                      </div>
+                      <div class="text-xl font-semibold tabular-nums">
+                        {@bi_data.totals.rules}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  <div class="card bg-base-100 shadow-sm border border-base-200">
+                    <div class="card-body">
+                      <h3 class="font-semibold text-sm inline-flex flex-wrap items-baseline gap-x-2">
+                        <span>Tendência</span>
+                        <.tech_term term={:oee} aria_describedby_glossary />
+                      </h3>
+                      <p class="text-xs text-base-content/60 inline-flex flex-wrap items-baseline gap-x-1">
+                        <.tech_term term={:oee} aria_describedby_glossary />
+                        <span>e componentes (</span>
+                        <.tech_term term={:oee_availability} text="A" aria_describedby_glossary />
+                        <span>/</span>
+                        <.tech_term term={:oee_performance} text="P" aria_describedby_glossary />
+                        <span>/</span>
+                        <.tech_term term={:oee_quality} text="Q" aria_describedby_glossary />
+                        <span>)</span>
+                      </p>
+                      <div
+                        id="bi-d3-chart-oee"
+                        class="h-44 mt-2 w-full"
+                        phx-update="ignore"
+                        phx-hook="D3BiChart"
+                        data-payload={Jason.encode!(bi_d3_oee_payload(@bi_data.oee_trend))}
+                      >
+                      </div>
+                    </div>
+                  </div>
+                  <div class="card bg-base-100 shadow-sm border border-base-200">
+                    <div class="card-body">
+                      <h3 class="font-semibold text-sm inline-flex flex-wrap items-baseline gap-x-2">
+                        <.tech_term
+                          term={:serie_temporal_telemetria}
+                          text="Série temporal"
+                          aria_describedby_glossary
+                        />
+                        <span>de telemetria</span>
+                      </h3>
+                      <p class="text-xs text-base-content/60 inline-flex flex-wrap items-baseline gap-x-1">
+                        <span>Fonte agregada por granularidade selecionada (</span>
+                        <.tech_term term={:tsdb} aria_describedby_glossary />
+                        <span>)</span>
+                      </p>
+                      <div
+                        id="bi-d3-chart-telemetry"
+                        class="h-44 mt-2 w-full"
+                        phx-update="ignore"
+                        phx-hook="D3BiChart"
+                        data-payload={
+                          Jason.encode!(bi_d3_telemetry_payload(@bi_data.telemetry_trend))
+                        }
+                      >
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  <div class="card bg-base-100 shadow-sm border border-base-200">
+                    <div class="card-body">
+                      <h3 class="font-semibold text-sm inline-flex flex-wrap items-baseline gap-x-2">
+                        <.tech_term term={:cep_ichart} aria_describedby_glossary />
+                        <span class="text-base-content/70 font-normal">(</span>
+                        <.tech_term term={:amr} aria_describedby_glossary />
+                        <span class="text-base-content/70 font-normal">)</span>
+                      </h3>
+                      <p class="text-xs text-base-content/60 inline-flex flex-wrap items-baseline gap-x-1">
+                        <.tech_term term={:cl_spc} text="CL" aria_describedby_glossary />
+                        <span>/</span>
+                        <.tech_term term={:ucl} aria_describedby_glossary />
+                        <span>/</span>
+                        <.tech_term term={:lcl} aria_describedby_glossary />
+                        <span>calculados no backend</span>
+                      </p>
+                      <div class="space-y-1 text-xs text-base-content/70">
+                        <div>
+                          <.tech_term term={:cl_spc} text="CL" aria_describedby_glossary />: {format_scada_number(
+                            @bi_data.cep_chart.cl
+                          )}
+                        </div>
+                        <div>
+                          <.tech_term term={:ucl} aria_describedby_glossary />: {format_scada_number(
+                            @bi_data.cep_chart.ucl
+                          )}
+                        </div>
+                        <div>
+                          <.tech_term term={:lcl} aria_describedby_glossary />: {format_scada_number(
+                            @bi_data.cep_chart.lcl
+                          )}
+                        </div>
+                      </div>
+                      <div
+                        id="bi-d3-chart-cep"
+                        class="h-44 mt-2 w-full"
+                        phx-update="ignore"
+                        phx-hook="D3BiChart"
+                        data-payload={Jason.encode!(bi_d3_cep_payload(@bi_data.cep_chart))}
+                      >
+                      </div>
+                    </div>
+                  </div>
+                  <div class="card bg-base-100 shadow-sm border border-base-200">
+                    <div class="card-body">
+                      <h3 class="font-semibold text-sm inline-flex flex-wrap items-baseline gap-x-2">
+                        <.tech_term
+                          term={:correlacao_fisica}
+                          text="Correlação física"
+                          aria_describedby_glossary
+                        />
+                        <span class="text-base-content/70 font-normal">(Darcy / Fermentação)</span>
+                      </h3>
+                      <p class="text-xs text-base-content/60">
+                        Pontos: pressão, claridade, bomba, Brix, CO2, pH
+                      </p>
+                      <div class="overflow-x-auto">
+                        <table class="table table-xs table-zebra">
+                          <thead>
+                            <tr>
+                              <th>Pressão</th>
+                              <th>Claridade</th>
+                              <th>Bomba</th>
+                              <th>Brix</th>
+                              <th>CO2</th>
+                              <th>pH</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <%= for row <- Enum.take(@bi_data.correlation_points, -12) do %>
+                              <tr>
+                                <td>{format_scada_number(row.pressure)}</td>
+                                <td>{format_scada_number(row.clarity)}</td>
+                                <td>{format_scada_number(row.pump)}</td>
+                                <td>{format_scada_number(row.brix)}</td>
+                                <td>{format_scada_number(row.co2)}</td>
+                                <td>{format_scada_number(row.ph)}</td>
+                              </tr>
+                            <% end %>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  <div class="card bg-base-100 shadow-sm border border-base-200">
+                    <div class="card-body">
+                      <h3 class="font-semibold text-sm">
+                        <.tech_term term={:painel_sinotico} aria_describedby_glossary />
+                      </h3>
+                      <p class="text-xs text-base-content/60 inline-flex flex-wrap items-baseline gap-x-1">
+                        <span>Estado simplificado por</span>
+                        <.tech_term term={:fbe} aria_describedby_glossary />
+                        <span>(ok/warning)</span>
+                      </p>
+                      <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
+                        <%= for s <- @bi_data.synoptic_status do %>
+                          <div class={[
+                            "rounded border p-2 text-xs",
+                            s.status == :warning && "border-warning bg-warning/10",
+                            s.status == :ok && "border-success bg-success/10",
+                            s.status == :unknown && "border-base-300 bg-base-200"
+                          ]}>
+                            <div class="font-mono">{s.fbe_id}</div>
+                            <div>Média: {format_scada_number(s.avg_value)}</div>
+                            <div>Máx: {format_scada_number(s.max_value)}</div>
+                          </div>
+                        <% end %>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="card bg-base-100 shadow-sm border border-base-200">
+                    <div class="card-body">
+                      <h3 class="font-semibold text-sm inline-flex flex-wrap items-baseline gap-x-2">
+                        <span>Eventos (</span>
+                        <.tech_term term={:diagrama_pareto} text="Pareto" aria_describedby_glossary />
+                        <span>e Top</span>
+                        <.tech_term term={:regra_pon} text="Regras" aria_describedby_glossary />
+                        <span>)</span>
+                      </h3>
+                      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                        <div>
+                          <p class="text-xs text-base-content/60 mb-1">Top anomalias</p>
+                          <%= for item <- @bi_data.anomaly_pareto do %>
+                            <div class="mb-1.5">
+                              <div class="flex justify-between text-xs">
+                                <span class="font-mono">{item.label}</span>
+                                <span>{item.total}</span>
+                              </div>
+                              <progress
+                                class="progress progress-warning w-full"
+                                value={item.total}
+                                max={bi_max_total(@bi_data.anomaly_pareto)}
+                              >
+                              </progress>
+                            </div>
+                          <% end %>
+                        </div>
+                        <div>
+                          <p class="text-xs text-base-content/60 mb-1">Top regras disparadas</p>
+                          <%= for item <- @bi_data.rule_top do %>
+                            <div class="mb-1.5">
+                              <div class="flex justify-between text-xs">
+                                <span class="font-mono">{item.label}</span>
+                                <span>{item.total}</span>
+                              </div>
+                              <progress
+                                class="progress progress-info w-full"
+                                value={item.total}
+                                max={bi_max_total(@bi_data.rule_top)}
+                              >
+                              </progress>
+                            </div>
+                          <% end %>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             <% else %>
@@ -1487,8 +1988,16 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                 >
                   <div class="card bg-base-100 shadow-sm border border-base-200">
                     <div class="card-body">
-                      <h2 class="card-title text-base">Grafo da malha PON</h2>
-                      <p class="text-xs text-base-content/70">Regras e FBEs: observa / aciona</p>
+                      <h2 class="card-title text-base inline-flex flex-wrap items-baseline gap-x-2">
+                        <span>Grafo da malha</span>
+                        <.tech_term term={:pon} aria_describedby_glossary />
+                      </h2>
+                      <p class="text-xs text-base-content/70 inline-flex flex-wrap items-baseline gap-x-1">
+                        <.tech_term term={:regra_pon} text="Regras" aria_describedby_glossary />
+                        <span>e</span>
+                        <.tech_term term={:fbe} text="FBEs" aria_describedby_glossary />
+                        <span>: observa / aciona</span>
+                      </p>
                       <div
                         id="mermaid-grafo-pon"
                         phx-hook="Mermaid"
@@ -1545,8 +2054,12 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                             <.icon name="hero-queue-list" class="size-5 text-base-content/60" />
                             <h2 class="font-semibold text-sm">Eventos / notificações</h2>
                           </div>
-                          <span class="badge badge-ghost badge-sm" title={"Máximo #{@max_log_entries} entradas"}>
-                            {length(@event_log_entries)} eventos <span class="opacity-70">/ #{@max_log_entries}</span>
+                          <span
+                            class="badge badge-ghost badge-sm"
+                            title={"Máximo #{@max_log_entries} entradas"}
+                          >
+                            {@event_log_count} eventos
+                            <span class="opacity-70">/ #{@max_log_entries}</span>
                           </span>
                         </div>
                         <div
@@ -1556,7 +2069,10 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                           aria-label="Log de eventos em tempo real"
                         >
                           <div id="event-log" phx-update="stream" class="contents">
-                            <div class="hidden only:block text-neutral-content/50 text-xs py-4">
+                            <div
+                              id="event-log-empty"
+                              class="hidden only:block text-neutral-content/50 text-xs py-4"
+                            >
                               Nenhum evento ainda.
                             </div>
                             <div
@@ -1580,9 +2096,18 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
 
                   <%!-- FBEs: 2 colunas em xl, scroll --%>
                   <section class="xl:col-span-2 space-y-3">
-                    <h2 class="text-lg font-semibold text-base-content flex items-center gap-2">
+                    <h2 class="text-lg font-semibold text-base-content flex flex-wrap items-center gap-2">
                       <.icon name="hero-cube" class="size-5 text-base-content/70" />
-                      Elementos da base de fatos (FBEs)
+                      <span class="inline-flex flex-wrap items-baseline gap-x-2">
+                        <span>Elementos da base de fatos (</span>
+                        <.tech_term
+                          term={:fbe}
+                          text="FBEs"
+                          aria_describedby_glossary
+                          show_glossary_link
+                        />
+                        <span>)</span>
+                      </span>
                     </h2>
                     <div class="space-y-3 max-h-[calc(100vh-12rem)] overflow-y-auto pr-1">
                       <%= for {fbe_id, nomes} <- @fatos_por_fbe do %>
@@ -1619,17 +2144,37 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                               <% end %>
                               <div class="overflow-x-auto px-4 pb-4">
                                 <table class="table table-sm table-zebra">
+                                  <caption class="sr-only">
+                                    Atributos do FBE_{pad2(fbe_id)} em tempo real: nome técnico, descrição e valor atual.
+                                  </caption>
                                   <thead>
                                     <tr>
-                                      <th class="font-mono text-xs">Atributo</th>
-                                      <th class="text-right font-mono text-xs">Valor</th>
+                                      <th scope="col" class="font-mono text-xs">
+                                        Atributo
+                                      </th>
+                                      <th scope="col" class="text-xs font-medium">
+                                        Descrição
+                                      </th>
+                                      <th scope="col" class="text-right font-mono text-xs">
+                                        Valor
+                                      </th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     <%= for nome <- nomes do %>
                                       <tr>
-                                        <td class="font-mono text-xs">{attr_label(nome)}</td>
-                                        <td class="text-right">
+                                        <th
+                                          scope="row"
+                                          class="font-mono text-xs font-normal align-top"
+                                        >
+                                          <.technical_hint title={FatoDescriptions.descricao(nome)}>
+                                            {attr_label(nome)}
+                                          </.technical_hint>
+                                        </th>
+                                        <td class="text-xs text-base-content/70 align-top max-w-md">
+                                          {FatoDescriptions.descricao(nome)}
+                                        </td>
+                                        <td class="text-right align-top">
                                           <span class="font-mono text-xs badge badge-ghost badge-sm">
                                             {format_value(@fatos[nome])}
                                           </span>
@@ -1648,8 +2193,9 @@ defmodule SimulacoesVisuaisWeb.SmartBreweryLive do
                 </div>
               <% end %>
             <% end %>
-            <% end %>
           <% end %>
+
+          <.glossary_section terms={SimulacoesVisuaisWeb.TechGlossary.terms_for(:smart_brewery)} />
         </div>
       </div>
     </Layouts.app>

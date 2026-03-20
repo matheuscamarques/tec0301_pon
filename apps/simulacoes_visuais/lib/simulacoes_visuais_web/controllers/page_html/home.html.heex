@@ -4,9 +4,21 @@
       <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-base-content">
         Gêmeo Digital · Smart Brewery
       </h1>
-      <p class="mt-4 text-lg text-base-content/80 leading-relaxed">
-        Painéis de dados em tempo real para o Gêmeo Digital na Indústria 4.0.
-        Arquitetura PON, 57 fatos, 11 FBEs e 12 regras — simulações visuais com Phoenix LiveView.
+      <p class="mt-4 text-lg text-base-content/80 leading-relaxed text-balance">
+        Painéis de dados em tempo real para o
+        <.tech_term term={:gemeo_digital} aria_describedby_glossary show_glossary_link /> na
+        <.tech_term term={:industria_4} aria_describedby_glossary show_glossary_link />.
+        Arquitetura
+        <.tech_term term={:pon} aria_describedby_glossary show_glossary_link />, 57 fatos, 11
+        <.tech_term term={:fbe} text="FBEs" aria_describedby_glossary show_glossary_link /> e 12
+        <.tech_term term={:regra_pon} text="regras" aria_describedby_glossary show_glossary_link />
+        — simulações visuais com Phoenix
+        <.tech_term term={:liveview} aria_describedby_glossary show_glossary_link />. Predições
+        <.tech_term term={:ml} aria_describedby_glossary show_glossary_link />
+        estão na área <.link
+          navigate={~p"/smart-brewery/ml-predictions"}
+          class="link link-primary font-medium"
+        >Predições ML</.link>.
       </p>
       <div class="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
         <a
@@ -19,6 +31,10 @@
       <p class="mt-8 text-sm text-base-content/60">
         TEC0301 PON · Simulações visuais
       </p>
+    </div>
+
+    <div class="mx-auto max-w-2xl mt-12">
+      <.glossary_section terms={SimulacoesVisuaisWeb.TechGlossary.terms_for(:home)} />
     </div>
   </div>
 </Layouts.app>

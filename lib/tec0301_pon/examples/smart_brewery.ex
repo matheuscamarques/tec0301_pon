@@ -26,6 +26,11 @@ defmodule Tec0301Pon.Examples.SmartBrewery do
   - **R_04** RegraProtecaoMoinho (FBE_01, ISO 10816-3). **R_05** RegraControleMostura (FBE_02). **R_06** RegraSegurancaCaldeira (FBE_04, NR-13). **R_07** RegraOtimizacaoTrocador (FBE_05). **R_08** RegraLoadBalancingFermentadorB (FBE_07, FBE_11). **R_09** RegraIntertravamentoMosturaFiltro (FBE_02, FBE_03, ISA-88). **R_10** RegraIntertravamentoFervuraTrocador (FBE_04, FBE_05). **R_11** RegraGestaoBateriaAMR (FBE_10). **R_12** RegraResilienciaRede (FBE_11).
 
   O Registry (PON) deve já estar rodando. A ordem de inicialização recomendada é: Bridge (malha PON) antes do Monte Carlo.
+
+  Documentação detalhada de **cada fato (tipo, valor inicial)** e **cada regra (`watch`, condição, ações)**:
+  [`docs/smart-brewery-fatos-regras.md`](../../../docs/smart-brewery-fatos-regras.md).
+
+  Textos de interface por fato (UI/a11y) na app Phoenix: `SimulacoesVisuais.SmartBrewery.FatoDescriptions`.
   """
   alias Tec0301Pon.PON.Fato
 
@@ -102,15 +107,15 @@ defmodule Tec0301Pon.Examples.SmartBrewery do
     {:fbe_11_grid_fault_detec, false}
   ]
 
+  @fatos_names Enum.map(@fatos_iniciais, fn {nome, _valor} -> nome end)
+
   @doc """
   Retorna a lista de átomos que representam os 57 fatos do Gêmeo Digital.
 
   Usado pela camada de visualização (ex.: LiveView) para inicializar e subscrever
   o estado de maneira determinística.
   """
-  def fatos_names do
-    Enum.map(@fatos_iniciais, fn {nome, _valor} -> nome end)
-  end
+  def fatos_names, do: @fatos_names
 
   @doc """
   Inicia a malha PON da Smart Brewery: 57 fatos e 12 regras (Artigo 05 e 11).

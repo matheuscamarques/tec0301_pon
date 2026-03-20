@@ -1,5 +1,5 @@
 defmodule Tec0301Pon.PON.PremissaTest do
-  use ExUnit.Case, async: false
+  use Tec0301Pon.PonCase
   alias Tec0301Pon.PON.Fato
   alias Tec0301Pon.PON.Premissa
 
@@ -7,7 +7,12 @@ defmodule Tec0301Pon.PON.PremissaTest do
     fonte = :"prem_criar_fonte_#{System.unique_integer([:positive])}"
     derivado = :"prem_criar_deriv_#{System.unique_integer([:positive])}"
     {:ok, _} = Fato.start_link(fonte, 0)
-    {:ok, prem_pid} = Premissa.start_link(derivado, [fonte], fn m -> (m[fonte] || 0) >= 10 end, criar_fato_derivado: true)
+
+    {:ok, prem_pid} =
+      Premissa.start_link(derivado, [fonte], fn m -> (m[fonte] || 0) >= 10 end,
+        criar_fato_derivado: true
+      )
+
     on_exit(fn -> Process.exit(prem_pid, :normal) end)
     Process.sleep(20)
     assert Fato.obter(derivado) == false
@@ -42,6 +47,7 @@ defmodule Tec0301Pon.PON.PremissaTest do
     derivado = :"prem_two_deriv_#{System.unique_integer([:positive])}"
     {:ok, _} = Fato.start_link(f1, 0)
     {:ok, _} = Fato.start_link(f2, 0)
+
     {:ok, prem_pid} =
       Premissa.start_link(
         derivado,
@@ -49,6 +55,7 @@ defmodule Tec0301Pon.PON.PremissaTest do
         fn m -> (m[f1] || 0) >= (m[f2] || 0) end,
         criar_fato_derivado: true
       )
+
     on_exit(fn -> Process.exit(prem_pid, :normal) end)
     Process.sleep(20)
     assert Fato.obter(derivado) == true
@@ -64,7 +71,12 @@ defmodule Tec0301Pon.PON.PremissaTest do
     fonte = :"prem_unchanged_#{System.unique_integer([:positive])}"
     derivado = :"prem_unchanged_deriv_#{System.unique_integer([:positive])}"
     {:ok, _} = Fato.start_link(fonte, 10)
-    {:ok, prem_pid} = Premissa.start_link(derivado, [fonte], fn m -> (m[fonte] || 0) >= 10 end, criar_fato_derivado: true)
+
+    {:ok, prem_pid} =
+      Premissa.start_link(derivado, [fonte], fn m -> (m[fonte] || 0) >= 10 end,
+        criar_fato_derivado: true
+      )
+
     on_exit(fn -> Process.exit(prem_pid, :normal) end)
     Process.sleep(20)
     assert Fato.obter(derivado) == true
@@ -72,5 +84,48 @@ defmodule Tec0301Pon.PON.PremissaTest do
     Fato.atualizar(fonte, 12)
     Process.sleep(30)
     assert Fato.obter(derivado) == true
+  end
+
+  test "criar_fato_derivado does not start_link when derived fact already registered" do
+    fonte = :"prem_exists_fonte_#{System.unique_integer([:positive])}"
+    derivado = :"prem_exists_deriv_#{System.unique_integer([:positive])}"
+    {:ok, _} = Fato.start_link(fonte, 0)
+    {:ok, _} = Fato.start_link(derivado, true)
+
+    {:ok, prem_pid} =
+      Premissa.start_link(derivado, [fonte], fn m -> (m[fonte] || 0) >= 0 end,
+        criar_fato_derivado: true
+      )
+
+    on_exit(fn -> Process.exit(prem_pid, :normal) end)
+    Process.sleep(20)
+    assert Fato.obter(derivado) == true
+  end
+
+  test "start_link/3 uses default empty opts list" do
+    fonte = :"prem_defopts_f_#{System.unique_integer([:positive])}"
+    derivado = :"prem_defopts_d_#{System.unique_integer([:positive])}"
+    {:ok, _} = Fato.start_link(fonte, 0)
+
+    {:ok, prem_pid} =
+      Premissa.start_link(derivado, [fonte], fn _ -> false end)
+
+    on_exit(fn -> Process.exit(prem_pid, :normal) end)
+    Process.sleep(15)
+    assert Process.alive?(prem_pid)
+  end
+
+  test "ignores unrelated messages" do
+    fonte = :"prem_junk_f_#{System.unique_integer([:positive])}"
+    derivado = :"prem_junk_d_#{System.unique_integer([:positive])}"
+    {:ok, _} = Fato.start_link(fonte, 0)
+
+    {:ok, prem_pid} =
+      Premissa.start_link(derivado, [fonte], fn _ -> false end, criar_fato_derivado: true)
+
+    on_exit(fn -> Process.exit(prem_pid, :normal) end)
+    send(prem_pid, :noise)
+    Process.sleep(15)
+    assert Process.alive?(prem_pid)
   end
 end

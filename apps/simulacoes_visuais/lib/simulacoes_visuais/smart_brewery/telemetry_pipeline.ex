@@ -2,8 +2,8 @@ defmodule SimulacoesVisuais.SmartBrewery.TelemetryPipeline do
   @moduledoc """
   Pipeline Broadway para telemetria PON: produtor GenStage recebe eventos, batcher
   agrupa e envia lotes ao PubSub (backpressure e batching — artigo 06).
-  Quando :tsdb_enabled, a persistência é feita neste handle_batch (uma transação
-  por lote), alinhado ao artigo 14; caso contrário apenas broadcast e EMA.
+  Em cada flush de lote, se `:tsdb_enabled` (via `Application.get_env/3`) estiver ativo, a
+  persistência é delegada ao TelemetryAsyncWriter (não bloqueia).
   """
   use Broadway
 
@@ -14,20 +14,39 @@ defmodule SimulacoesVisuais.SmartBrewery.TelemetryPipeline do
   @topic "smart_brewery:fatos"
 
   def start_link(_opts) do
+    batch_size =
+      Application.get_env(:simulacoes_visuais, :telemetry_pipeline_batch_size, 200)
+      |> max(50)
+
+    batch_timeout =
+      Application.get_env(:simulacoes_visuais, :telemetry_pipeline_batch_timeout_ms, 300)
+      |> max(100)
+
+    tsdb_enabled = Application.get_env(:simulacoes_visuais, :tsdb_enabled, false)
+
+    processor_concurrency =
+      Application.get_env(:simulacoes_visuais, :telemetry_pipeline_processor_concurrency, 1)
+      |> max(1)
+
+    batcher_concurrency =
+      Application.get_env(:simulacoes_visuais, :telemetry_pipeline_batcher_concurrency, 1)
+      |> max(1)
+
     Broadway.start_link(__MODULE__,
       name: __MODULE__,
+      context: %{tsdb_enabled: tsdb_enabled},
       producer: [
         module: {TelemetryProducer, [name: :smart_brewery_telemetry_producer]},
         transformer: {__MODULE__, :transform, []}
       ],
       processors: [
-        default: [concurrency: 1]
+        default: [concurrency: processor_concurrency]
       ],
       batchers: [
         default: [
-          concurrency: 1,
-          batch_size: 100,
-          batch_timeout: 250
+          concurrency: batcher_concurrency,
+          batch_size: batch_size,
+          batch_timeout: batch_timeout
         ]
       ]
     )
@@ -52,8 +71,7 @@ defmodule SimulacoesVisuais.SmartBrewery.TelemetryPipeline do
     if messages != [] do
       merged =
         messages
-        |> Enum.map(fn %Message{data: {k, v}} -> {k, v} end)
-        |> Enum.into(%{}, fn {k, v} -> {k, v} end)
+        |> merge_message_data(%{})
 
       list = Map.to_list(merged)
       count = length(list)
@@ -66,30 +84,34 @@ defmodule SimulacoesVisuais.SmartBrewery.TelemetryPipeline do
 
       Phoenix.PubSub.broadcast(SimulacoesVisuais.PubSub, @topic, {:batch, list})
 
-      for {nome, valor} <- list, is_number(valor) do
-        try do
-          SimulacoesVisuais.SmartBrewery.EMA.push(nome, valor)
-        rescue
-          _ -> :ok
-        end
-      end
+      push_ema_numeric_loop(list)
 
-      persist_batch(list)
+      # Lê env em cada flush (alinhado ao SmartBreweryTelemetryBatcher), não só o context do arranque.
+      if Application.get_env(:simulacoes_visuais, :tsdb_enabled, false) do
+        SimulacoesVisuais.SmartBrewery.TelemetryAsyncWriter.cast_batch(list)
+      end
     end
 
     messages
   end
 
-  defp persist_batch(list) do
-    if Application.get_env(:simulacoes_visuais, :tsdb_enabled, false) do
-      rows = SimulacoesVisuais.TelemetryEvent.changesets_from_batch(list)
-      if rows != [] do
-        try do
-          SimulacoesVisuais.Repo.insert_all(SimulacoesVisuais.TelemetryEvent, rows)
-        rescue
-          e -> Logger.warning("[TelemetryPipeline] insert_all failed: #{inspect(e)}")
-        end
+  defp merge_message_data([], acc), do: acc
+
+  defp merge_message_data([%Message{data: {k, v}} | rest], acc) do
+    merge_message_data(rest, Map.put(acc, k, v))
+  end
+
+  defp push_ema_numeric_loop([]), do: :ok
+
+  defp push_ema_numeric_loop([{nome, valor} | rest]) do
+    if is_number(valor) do
+      try do
+        SimulacoesVisuais.SmartBrewery.EMA.push(nome, valor)
+      rescue
+        _ -> :ok
       end
     end
+
+    push_ema_numeric_loop(rest)
   end
 end

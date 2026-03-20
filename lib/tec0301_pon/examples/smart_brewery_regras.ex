@@ -5,8 +5,21 @@ defmodule Tec0301Pon.Examples.SmartBrewery.Regras do
 
   - R_01 a R_03: Artigo 05 (otimização filtração, intertravamento envase, Smart Grid).
   - R_04 a R_12: Artigo 11 (proteção moinho, mostura, caldeira, trocador, ISA-88, AMR, resiliência rede).
+
+  Catálogo de fatos e regras (atributos, condições, `watch`): [`docs/smart-brewery-fatos-regras.md`](../../../docs/smart-brewery-fatos-regras.md).
   """
   use Tec0301Pon.PON.Builder
+
+  def mostura_fora_faixa?(memoria) when is_map(memoria) do
+    mash_temp = memoria[:fbe_02_mash_temp]
+    ph_level = memoria[:fbe_02_ph_level]
+    liquid_level = memoria[:fbe_02_liquid_level]
+    agitator_status = memoria[:fbe_02_agitator_status]
+
+    (mash_temp != nil and (mash_temp < 60 or mash_temp > 72)) or
+      (ph_level != nil and (ph_level < 5.0 or ph_level > 5.8)) or
+      (liquid_level != nil and agitator_status == :off and liquid_level > 90)
+  end
 
   # R_01: AND — diff_pressure > 150, wort_clarity < 20, pump_speed > 50
   defrule(RegraOtimizacaoFiltracao,
@@ -52,6 +65,7 @@ defmodule Tec0301Pon.Examples.SmartBrewery.Regras do
   )
 
   # R_04 — Proteção Moinho (Artigo 11 §2, ISO 10816-3). Zona C: reduzir RPM; Zona D: fechar válvula.
+  # edge_triggered: evita reexecutar reduce_motor_rpm a cada notificação enquanto a condição permanece verdadeira.
   defrule(RegraProtecaoMoinho,
     watch: [
       :fbe_01_motor_temp,
@@ -65,6 +79,7 @@ defmodule Tec0301Pon.Examples.SmartBrewery.Regras do
         (memoria[:fbe_01_motor_temp] != nil and memoria[:fbe_01_motor_temp] > 70) or
         (memoria[:fbe_01_hopper_level] != nil and memoria[:fbe_01_motor_rpm] != nil and
            memoria[:fbe_01_hopper_level] < 15 and memoria[:fbe_01_motor_rpm] > 0),
+    edge_triggered: true,
     do:
       (
         Tec0301Pon.Examples.SmartBrewery.FBE_01.reduce_motor_rpm()
@@ -79,13 +94,7 @@ defmodule Tec0301Pon.Examples.SmartBrewery.Regras do
   # R_05 — Controle Mostura (Artigo 11 §3). Temperatura/pH fora da faixa enzimática ou nível alto sem agitador.
   defrule(RegraControleMostura,
     watch: [:fbe_02_mash_temp, :fbe_02_ph_level, :fbe_02_liquid_level, :fbe_02_agitator_status],
-    when:
-      (memoria[:fbe_02_mash_temp] != nil and
-         (memoria[:fbe_02_mash_temp] < 60 or memoria[:fbe_02_mash_temp] > 72)) or
-        (memoria[:fbe_02_ph_level] != nil and
-           (memoria[:fbe_02_ph_level] < 5.0 or memoria[:fbe_02_ph_level] > 5.8)) or
-        (memoria[:fbe_02_liquid_level] != nil and memoria[:fbe_02_agitator_status] == :off and
-           memoria[:fbe_02_liquid_level] > 90),
+    when: Tec0301Pon.Examples.SmartBrewery.Regras.mostura_fora_faixa?(memoria),
     do:
       (
         Tec0301Pon.Examples.SmartBrewery.FBE_02.start_agitator()

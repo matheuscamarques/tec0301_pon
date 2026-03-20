@@ -6,6 +6,15 @@ defmodule Tec0301Pon.PON.Regra do
   Suporta dois modos:
   - Funções anônimas: start_link(fatos, condicao_fn, acao_fn)
   - Módulo (Hot Swap): start_link(fatos, modulo) usa avaliar/1 e executar/1 do módulo
+
+  Opção `edge_triggered: true` em `start_link(fatos, modulo, edge_triggered: true)`:
+  executa a ação só na transição da condição de falsa para verdadeira (evita reentradas
+  enquanto a condição permanece verdadeira).
+
+  Mensagens suportadas:
+  - `{:notificacao, nome_fato, valor}` — drenagem de mensagens consecutivas do mesmo formato
+    (e de `{:notificacoes_lote, map}`) antes de uma única avaliação reduz trabalho em *bursts*.
+  - `{:notificacoes_lote, %{fato => valor, ...}}` — mescla só as chaves que a regra observa.
   """
   use GenServer
 
@@ -21,6 +30,8 @@ defmodule Tec0301Pon.PON.Regra do
       acao: acao_fn,
       modulo: nil,
       instigation_list: [],
+      edge_triggered: false,
+      ultima_condicao: false,
       estatisticas_notificacoes: 0,
       estatisticas_execucoes: 0
     })
@@ -29,6 +40,8 @@ defmodule Tec0301Pon.PON.Regra do
   def start_link(fatos_monitorados, modulo, opts)
       when is_list(fatos_monitorados) and is_atom(modulo) and is_list(opts) do
     instigation_list = Keyword.get(opts, :instigation_list, [])
+    edge_triggered = Keyword.get(opts, :edge_triggered, false)
+
     GenServer.start_link(__MODULE__, %{
       fatos: fatos_monitorados,
       memoria: %{},
@@ -36,6 +49,8 @@ defmodule Tec0301Pon.PON.Regra do
       acao: nil,
       modulo: modulo,
       instigation_list: instigation_list,
+      edge_triggered: edge_triggered,
+      ultima_condicao: false,
       estatisticas_notificacoes: 0,
       estatisticas_execucoes: 0
     })
@@ -47,16 +62,7 @@ defmodule Tec0301Pon.PON.Regra do
   Para lista de instigações, use `start_link(fatos, modulo, instigation_list: [...])`.
   """
   def start_link(fatos_monitorados, modulo) when is_list(fatos_monitorados) and is_atom(modulo) do
-    GenServer.start_link(__MODULE__, %{
-      fatos: fatos_monitorados,
-      memoria: %{},
-      condicao: nil,
-      acao: nil,
-      modulo: modulo,
-      instigation_list: [],
-      estatisticas_notificacoes: 0,
-      estatisticas_execucoes: 0
-    })
+    start_link(fatos_monitorados, modulo, [])
   end
 
   @doc """
@@ -97,12 +103,72 @@ defmodule Tec0301Pon.PON.Regra do
 
   @impl true
   def handle_info({:notificacao, nome_fato, novo_valor}, estado) do
-    estado = Map.update(estado, :estatisticas_notificacoes, 1, &(&1 + 1))
+    base = Map.get(estado, :estatisticas_notificacoes, 0)
     nova_memoria = Map.put(estado.memoria, nome_fato, novo_valor)
+    {nova_memoria, drained} = drain_notificacoes(nova_memoria, estado, 0)
+    estado = Map.put(estado, :estatisticas_notificacoes, base + 1 + drained)
+    avaliar_apos_memoria(estado, nova_memoria)
+  end
+
+  def handle_info({:notificacoes_lote, updates}, estado) when is_map(updates) do
+    base = Map.get(estado, :estatisticas_notificacoes, 0)
+    relevante = Map.take(updates, estado.fatos)
+    nova_memoria = Map.merge(estado.memoria, relevante)
+    {nova_memoria, drained} = drain_notificacoes(nova_memoria, estado, 0)
+    estado = Map.put(estado, :estatisticas_notificacoes, base + 1 + drained)
+    avaliar_apos_memoria(estado, nova_memoria)
+  end
+
+  def handle_info(_msg, estado), do: {:noreply, estado}
+
+  @impl true
+  def handle_call(:estatisticas, _from, estado) do
+    result = %{
+      notificacoes: Map.get(estado, :estatisticas_notificacoes, 0),
+      execucoes: Map.get(estado, :estatisticas_execucoes, 0)
+    }
+
+    {:reply, result, estado}
+  end
+
+  @impl true
+  def handle_cast(:reset_estatisticas, estado) do
+    novo_estado =
+      estado
+      |> Map.put(:estatisticas_notificacoes, 0)
+      |> Map.put(:estatisticas_execucoes, 0)
+      |> Map.put(:ultima_condicao, false)
+
+    {:noreply, novo_estado}
+  end
+
+  defp drain_notificacoes(memoria, estado, acc) do
+    receive do
+      {:notificacao, nome, valor} ->
+        drain_notificacoes(Map.put(memoria, nome, valor), estado, acc + 1)
+
+      {:notificacoes_lote, upd} when is_map(upd) ->
+        rel = Map.take(upd, estado.fatos)
+        drain_notificacoes(Map.merge(memoria, rel), estado, acc + 1)
+    after
+      0 ->
+        {memoria, acc}
+    end
+  end
+
+  defp avaliar_apos_memoria(estado, nova_memoria) do
     disparado = avaliar_condicao(estado, nova_memoria)
+    ultima = Map.get(estado, :ultima_condicao, false)
+
+    executar? =
+      if Map.get(estado, :edge_triggered, false) do
+        disparado and not ultima
+      else
+        disparado
+      end
 
     estado =
-      if disparado do
+      if executar? do
         estado
         |> Map.update(:estatisticas_execucoes, 1, &(&1 + 1))
         |> then(fn s ->
@@ -114,27 +180,10 @@ defmodule Tec0301Pon.PON.Regra do
         estado
       end
 
-    {:noreply, %{estado | memoria: nova_memoria}}
-  end
-
-  def handle_info(_msg, estado), do: {:noreply, estado}
-
-  @impl true
-  def handle_call(:estatisticas, _from, estado) do
-    result = %{
-      notificacoes: Map.get(estado, :estatisticas_notificacoes, 0),
-      execucoes: Map.get(estado, :estatisticas_execucoes, 0)
-    }
-    {:reply, result, estado}
-  end
-
-  @impl true
-  def handle_cast(:reset_estatisticas, estado) do
-    novo_estado =
-      estado
-      |> Map.put(:estatisticas_notificacoes, 0)
-      |> Map.put(:estatisticas_execucoes, 0)
-    {:noreply, novo_estado}
+    {:noreply,
+     estado
+     |> Map.put(:memoria, nova_memoria)
+     |> Map.put(:ultima_condicao, disparado)}
   end
 
   defp run_instigations(%{instigation_list: list}) when is_list(list) do

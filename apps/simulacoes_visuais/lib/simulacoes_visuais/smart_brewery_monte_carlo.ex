@@ -13,15 +13,13 @@ defmodule SimulacoesVisuais.SmartBreweryMonteCarlo do
   alias SimulacoesVisuais.SmartBrewery.FBE10Markov
   alias SimulacoesVisuais.SmartBrewery.FBE11SmartGrid
   alias SimulacoesVisuais.SmartBrewery.Noise
-  alias SimulacoesVisuais.SmartBrewery.NxSim
+  alias SimulacoesVisuais.SmartBrewery.Fbe03Pure
   alias Tec0301Pon.Examples.SmartBrewery
   alias Tec0301Pon.PON.Fato
 
   require Logger
 
   @default_interval_ms 1_500
-  @facts_per_tick_min 1
-  @facts_per_tick_max 4
 
   # Variáveis contínuas "lentas" com random walk (Box-Muller) em vez de uniforme (artigo §3.1)
   @random_walk_facts [
@@ -139,6 +137,10 @@ defmodule SimulacoesVisuais.SmartBreweryMonteCarlo do
     fbe_11_grid_fault_detec: :bool
   }
 
+  @mc_fact_names SmartBrewery.fatos_names()
+                 |> Enum.filter(&Map.has_key?(@schema, &1))
+                 |> Enum.reject(&(&1 in @excluded_from_mc))
+
   def start_link(opts \\ []) do
     interval = Keyword.get(opts, :interval_ms, @default_interval_ms)
     GenServer.start_link(__MODULE__, %{interval_ms: interval}, name: __MODULE__)
@@ -154,15 +156,48 @@ defmodule SimulacoesVisuais.SmartBreweryMonteCarlo do
     GenServer.cast(__MODULE__, :stop_loop)
   end
 
+  @doc false
+  def running? do
+    GenServer.call(__MODULE__, :running?)
+  end
+
+  @doc false
+  def run_tick_sync do
+    GenServer.call(__MODULE__, :run_tick_sync, :infinity)
+  end
+
+  @doc false
+  def capture_tick_state do
+    GenServer.call(__MODULE__, :capture_tick_state, :infinity)
+  end
+
+  @impl true
+  def handle_call(:running?, _from, state) do
+    {:reply, Map.get(state, :running, false), state}
+  end
+
+  @impl true
+  def handle_call(:run_tick_sync, _from, state) do
+    {:reply, :ok, run_tick_pure(state)}
+  end
+
+  @impl true
+  def handle_call(:capture_tick_state, _from, state) do
+    {:reply, state, state}
+  end
+
   @impl true
   def init(init_state) do
     seed = :erlang.phash2(:os.system_time(:millisecond))
-    nx_key = Nx.Random.key(seed)
+    fbe03_prng = Fbe03Pure.seed(seed)
+    {mc_min, mc_max} = facts_per_tick_bounds_from_env()
 
     state =
       init_state
       |> Map.put_new(:running, false)
-      |> Map.put(:nx_key, nx_key)
+      |> Map.put(:fbe03_prng, fbe03_prng)
+      |> Map.put(:mc_facts_per_tick_min, mc_min)
+      |> Map.put(:mc_facts_per_tick_max, mc_max)
 
     {:ok, state}
   end
@@ -179,6 +214,7 @@ defmodule SimulacoesVisuais.SmartBreweryMonteCarlo do
     end
 
     interval = state.interval_ms
+    _ = SimulacoesVisuais.SmartBrewery.CaseContext.new_session()
     # Primeiro tick logo para feedback imediato; depois a cada interval_ms
     Process.send_after(self(), :tick, 100)
     Logger.info("[SmartBreweryMonteCarlo] Loop iniciado (tick a cada #{interval} ms).")
@@ -195,20 +231,16 @@ defmodule SimulacoesVisuais.SmartBreweryMonteCarlo do
 
   @impl true
   def handle_info(:tick, state) do
-    new_state = tick(state)
+    new_state = run_tick_pure(state)
     interval = state.interval_ms
     Process.send_after(self(), :tick, interval)
     {:noreply, new_state}
   end
 
-  # Matriz de correlação FBE_03: pump_speed(0), diff_pressure(1), wort_clarity(2). Artigo §3.2.
-  @fbe03_correlation [
-    [1.0, 0.8, -0.5],
-    [0.8, 1.0, -0.7],
-    [-0.5, -0.7, 1.0]
-  ]
+  @doc false
+  def run_tick_pure(state) do
+    state = normalize_mc_state(state)
 
-  defp tick(state) do
     # Modelos físicos e estocásticos dedicados
     FBE03Darcy.tick()
     FBE06Fermentation.tick()
@@ -216,32 +248,35 @@ defmodule SimulacoesVisuais.SmartBreweryMonteCarlo do
     FBE08Markov.tick()
     FBE10Markov.tick()
     FBE11SmartGrid.tick()
-    # Variáveis correlacionadas FBE_03 via Nx (Cholesky + normais, artigo §3.2 e §4.1)
+
+    # Variáveis correlacionadas FBE_03 (Cholesky + normais, artigo §3.2 e §4.1) — `Fbe03Pure` sem Nx no tick
     state = update_fbe03_cholesky(state)
 
-    # Monte Carlo apenas para fatos não cobertos pelos modelos
-    all_names = SmartBrewery.fatos_names()
-    with_schema = Enum.filter(all_names, &Map.has_key?(@schema, &1))
-    excluded = MapSet.new(@excluded_from_mc)
-    mc_candidates = Enum.reject(with_schema, &MapSet.member?(excluded, &1))
-    count = min(Enum.random(@facts_per_tick_min..@facts_per_tick_max), length(mc_candidates))
-    chosen = Enum.take_random(mc_candidates, count)
+    # Monte Carlo apenas para fatos não cobertos pelos modelos (lista pré-computada)
+    {min_n, max_n} = mc_facts_per_tick_bounds(state)
+    count = min(Enum.random(min_n..max_n), length(@mc_fact_names))
+    chosen = Enum.take_random(@mc_fact_names, count)
+    apply_mc_chosen_updates(chosen)
 
-    for nome <- chosen do
-      valor = next_value(nome)
+    state
+  end
 
-      if valor != nil do
-        try do
-          Fato.atualizar(nome, valor)
-          Logger.debug("[SmartBreweryMonteCarlo] #{nome} = #{inspect(valor)}")
-        rescue
-          e ->
-            Logger.warning("[SmartBreweryMonteCarlo] Falha ao atualizar #{nome}: #{inspect(e)}")
-        end
+  defp apply_mc_chosen_updates([]), do: :ok
+
+  defp apply_mc_chosen_updates([nome | rest]) do
+    valor = next_value(nome)
+
+    if valor != nil do
+      try do
+        Fato.atualizar(nome, valor)
+        Logger.debug("[SmartBreweryMonteCarlo] #{nome} = #{inspect(valor)}")
+      rescue
+        e ->
+          Logger.warning("[SmartBreweryMonteCarlo] Falha ao atualizar #{nome}: #{inspect(e)}")
       end
     end
 
-    state
+    apply_mc_chosen_updates(rest)
   end
 
   defp next_value(nome) do
@@ -270,18 +305,62 @@ defmodule SimulacoesVisuais.SmartBreweryMonteCarlo do
     round(clamped * 100) / 100
   end
 
+  defp random_value({:range, min, max})
+       when is_integer(min) and is_integer(max) and min <= max do
+    min + :rand.uniform(max - min + 1) - 1
+  end
+
   defp random_value({:range, min, max}), do: Enum.random(min..max)
   defp random_value({:enum, list}), do: Enum.random(list)
   defp random_value(:bool), do: Enum.random([true, false])
   defp random_value(_), do: nil
 
   defp update_fbe03_cholesky(state) do
-    {[pump_speed, diff_pressure, wort_clarity], new_key} =
-      NxSim.fbe03_correlated(state.nx_key, @fbe03_correlation)
+    {{pump_speed, diff_pressure, wort_clarity}, new_prng} =
+      Fbe03Pure.fbe03_correlated(state.fbe03_prng)
 
-    Fato.atualizar(:fbe_03_pump_speed, pump_speed)
-    Fato.atualizar(:fbe_03_diff_pressure, diff_pressure)
-    Fato.atualizar(:fbe_03_wort_clarity, wort_clarity)
-    %{state | nx_key: new_key}
+    Fato.atualizar_lote(%{
+      fbe_03_pump_speed: pump_speed,
+      fbe_03_diff_pressure: diff_pressure,
+      fbe_03_wort_clarity: wort_clarity
+    })
+
+    %{state | fbe03_prng: new_prng}
+  end
+
+  defp facts_per_tick_bounds_from_env do
+    min_n = Application.get_env(:simulacoes_visuais, :monte_carlo_facts_per_tick_min, 1)
+    max_n = Application.get_env(:simulacoes_visuais, :monte_carlo_facts_per_tick_max, 4)
+    lo = min_n |> min(max_n) |> max(1)
+    hi = max(min_n, max_n)
+    {lo, hi}
+  end
+
+  defp mc_facts_per_tick_bounds(%{mc_facts_per_tick_min: a, mc_facts_per_tick_max: b}),
+    do: {a, b}
+
+  # Hot-upgrade / testes: estado antigo com :nx_key (Nx.Random) → :fbe03_prng (:rand).
+  defp normalize_mc_state(%{fbe03_prng: _} = state), do: ensure_mc_tick_bounds(state)
+
+  defp normalize_mc_state(%{nx_key: k} = state) do
+    seed = :erlang.phash2({:legacy_nx_key, k})
+
+    state
+    |> Map.put(:fbe03_prng, Fbe03Pure.seed(seed))
+    |> Map.delete(:nx_key)
+    |> ensure_mc_tick_bounds()
+  end
+
+  defp normalize_mc_state(state) do
+    seed = :erlang.phash2(:os.system_time(:millisecond))
+
+    state
+    |> Map.put(:fbe03_prng, Fbe03Pure.seed(seed))
+    |> ensure_mc_tick_bounds()
+  end
+
+  defp ensure_mc_tick_bounds(state) do
+    {lo, hi} = facts_per_tick_bounds_from_env()
+    state |> Map.put_new(:mc_facts_per_tick_min, lo) |> Map.put_new(:mc_facts_per_tick_max, hi)
   end
 end

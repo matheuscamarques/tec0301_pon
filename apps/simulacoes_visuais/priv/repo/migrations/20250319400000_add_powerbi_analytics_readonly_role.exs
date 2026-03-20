@@ -11,10 +11,18 @@ defmodule SimulacoesVisuais.Repo.Migrations.AddPowerbiAnalyticsReadonlyRole do
 
   def up do
     password = System.get_env("POWERBI_ANALYTICS_PASSWORD") || "change_me_in_production"
-    # Escapa aspas simples na senha para SQL
+    # Aspas na senha: literal do 2º arg de format() no PostgreSQL
     escaped = String.replace(password, "'", "''")
 
-    execute "CREATE ROLE powerbi_analytics WITH LOGIN PASSWORD '#{escaped}';"
+    # Roles são globais ao cluster: após `ecto.drop` o DB some mas o role pode permanecer.
+    execute """
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'powerbi_analytics') THEN
+        EXECUTE format('CREATE ROLE powerbi_analytics WITH LOGIN PASSWORD %L', '#{escaped}');
+      END IF;
+    END $$;
+    """
 
     execute """
     DO $$

@@ -9,6 +9,25 @@ if database_url = System.get_env("DATABASE_URL") do
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
 end
 
+if System.get_env("POWERBI_PUSH_ENABLED") in ~w(true 1 yes) do
+  include_labels =
+    case System.get_env("POWERBI_PUSH_INCLUDE_LABELS") do
+      nil -> true
+      v -> v not in ~w(false 0 no)
+    end
+
+  config :simulacoes_visuais, :power_bi_push,
+    enabled: true,
+    group_id: System.get_env("POWERBI_PUSH_GROUP_ID"),
+    dataset_id: System.get_env("POWERBI_PUSH_DATASET_ID"),
+    table_name: System.get_env("POWERBI_PUSH_TABLE_NAME") || "Telemetry",
+    access_token: System.get_env("POWERBI_PUSH_ACCESS_TOKEN"),
+    min_interval_ms: String.to_integer(System.get_env("POWERBI_PUSH_MIN_INTERVAL_MS") || "5000"),
+    max_rows_per_push: String.to_integer(System.get_env("POWERBI_PUSH_MAX_ROWS") || "500"),
+    max_buffer_rows: String.to_integer(System.get_env("POWERBI_PUSH_MAX_BUFFER_ROWS") || "10000"),
+    include_labels: include_labels
+end
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration

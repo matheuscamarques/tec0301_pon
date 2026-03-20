@@ -137,89 +137,14 @@
 .scada-panel .scada-delta-down { color: var(--scada-delta-down); }
 .scada-panel .scada-lamp-critical { background-color: var(--scada-critical); }
 .scada-panel .scada-lamp-critical.scada-critical-pulse { animation: scada-critical-blink 280ms ease-in-out infinite; }
-
-/* ================= Smart Brewery SVG 2D – animações e interatividade ================= */
-.svg-2d-container .path-grain { stroke: #d97706; stroke-dasharray: 6 4; animation: flow-grain calc(0.8s / var(--speed-factor, 1)) linear infinite; }
-.svg-2d-container .path-hot {
-  stroke: #ef4444;
-  stroke-dasharray: 12 6;
-  animation: flow-hot calc(0.8s / var(--speed-factor, 1)) linear infinite;
-  opacity: calc(0.6 + 0.4 * var(--temp-factor, 0.5));
-  stroke-width: calc(3 + 2 * var(--pressure-factor, 0.3));
+.scada-panel .scada-rule-flash {
+  animation: scada-rule-glow 1.2s ease-out;
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.55), 0 0 22px rgba(250, 204, 21, 0.5);
 }
-.svg-2d-container .path-cold { stroke: #3b82f6; stroke-dasharray: 12 6; animation: flow-cold calc(1.2s / var(--speed-factor, 1)) linear infinite; }
-.svg-2d-container .path-cip { stroke: #22c55e; stroke-dasharray: 10 5; animation: flow-cip calc(1.5s / var(--flow-speed, 1)) linear infinite; }
-.svg-2d-container .path-power { stroke: #eab308; stroke-dasharray: 4 4; animation: flow-power calc(0.5s / var(--speed-factor, 1)) linear infinite; }
-
-@keyframes flow-grain { 0% { stroke-dashoffset: 20; } 100% { stroke-dashoffset: 0; } }
-@keyframes flow-hot { 0% { stroke-dashoffset: 24; } 100% { stroke-dashoffset: 0; } }
-@keyframes flow-cold { 0% { stroke-dashoffset: 24; } 100% { stroke-dashoffset: 0; } }
-@keyframes flow-cip { 0% { stroke-dashoffset: 20; } 100% { stroke-dashoffset: 0; } }
-@keyframes flow-power { 0% { stroke-dashoffset: 16; } 100% { stroke-dashoffset: 0; } }
-
-.svg-2d-container .spin-slow { transform-origin: center; transform-box: fill-box; animation: spin calc(4s / var(--speed-factor, 1)) linear infinite; }
-.svg-2d-container .spin-fast { transform-origin: center; transform-box: fill-box; animation: spin calc(1s / var(--speed-factor, 1)) linear infinite; }
-.svg-2d-container .spin-rev-fast { transform-origin: center; transform-box: fill-box; animation: spin-reverse calc(1s / var(--speed-factor, 1)) linear infinite; }
-.svg-2d-container .steam {
-  animation: steam-rise calc(2s / var(--speed-factor, 1)) infinite ease-out;
-  opacity: calc(0.4 + 0.5 * var(--temp-factor, 0.5));
+@keyframes scada-rule-glow {
+  0% { box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.85), 0 0 28px rgba(250, 204, 21, 0.8); }
+  100% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0), 0 0 0 rgba(250, 204, 21, 0); }
 }
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-@keyframes spin-reverse { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
-@keyframes steam-rise { 0% { transform: translateY(0) scale(1); opacity: 0.8; } 100% { transform: translateY(-30px) scale(1.5); opacity: 0; } }
-
-.svg-2d-container .liquid-anim {
-  transform-origin: bottom center;
-  transform-box: fill-box;
-  animation: liquid-level calc(3s / var(--speed-factor, 1)) ease-in-out infinite;
-}
-.svg-2d-container .liquid-level-mostura {
-  transform-origin: bottom center;
-  transform-box: fill-box;
-  transform: scaleY(var(--level-mostura, 1));
-}
-.svg-2d-container .liquid-level-hopper {
-  transform-origin: bottom center;
-  transform-box: fill-box;
-  transform: scaleY(var(--level-hopper, 1));
-}
-.svg-2d-container .foam-level {
-  opacity: var(--level-foam, 0.3);
-}
-.svg-2d-container .bubble {
-  animation: boil-bubble calc(1.5s / var(--speed-factor, 1)) infinite ease-in;
-  opacity: calc(0.6 + 0.4 * var(--temp-factor, 0.5));
-}
-.svg-2d-container .co2 { animation: co2-bubble calc(2.5s / var(--speed-factor, 1)) infinite ease-in; }
-.svg-2d-container .grain-particle { animation: grain-fall calc(0.6s / var(--speed-factor, 1)) linear infinite; }
-.svg-2d-container .conveyor-run { animation: bottle-move calc(1.5s / var(--conveyor-speed, 1)) linear infinite; }
-.svg-2d-container .amr-run { animation: amr-patrol calc(12s / var(--speed-factor, 1)) ease-in-out infinite; }
-.svg-2d-container .filler-run { animation: filler-plunge calc(1.5s / var(--conveyor-speed, 1)) ease-in-out infinite; }
-.svg-2d-container .fire-glow { transform-origin: bottom center; transform-box: fill-box; animation: fire-pulse 0.4s infinite alternate; }
-.svg-2d-container .live-led { animation: led-blink 1s infinite; }
-
-@keyframes liquid-level { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.96); } }
-@keyframes boil-bubble { 0% { transform: translateY(0) scale(0.5); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateY(-40px) scale(1.2); opacity: 0; } }
-@keyframes co2-bubble { 0% { transform: translateY(0) scale(0.3); opacity: 0; } 30% { opacity: 0.8; } 100% { transform: translateY(-60px) scale(1.5); opacity: 0; } }
-@keyframes grain-fall { 0% { transform: translateY(-10px); opacity: 0; } 20% { opacity: 1; } 80% { opacity: 1; } 100% { transform: translateY(40px); opacity: 0; } }
-@keyframes bottle-move { 0% { transform: translateX(-40px); } 100% { transform: translateX(0); } }
-@keyframes amr-patrol { 0% { transform: translate(30px, 45px); } 45% { transform: translate(190px, 45px); } 50% { transform: translate(190px, 45px); } 95% { transform: translate(30px, 45px); } 100% { transform: translate(30px, 45px); } }
-@keyframes filler-plunge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(12px); } }
-@keyframes fire-pulse { 0%, 100% { transform: scaleY(1); opacity: 0.8; } 50% { transform: scaleY(1.3); opacity: 1; } }
-@keyframes led-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-
-.svg-2d-container .interactive-group { transition: filter 0.3s ease; cursor: pointer; }
-.svg-2d-container .interactive-group:hover { filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.5)); z-index: 10; }
-.svg-2d-container .interactive-group.svg-2d-group-selected { filter: drop-shadow(0 0 12px rgba(16, 185, 129, 0.8)); stroke: #10b981; }
-.svg-2d-container .svg-2d-group-selected rect:first-of-type { stroke: #10b981; stroke-width: 2; }
-
-.svg-2d-container .data-label { font-family: monospace; font-size: 10px; fill: #94a3b8; }
-.svg-2d-container .data-value { font-family: monospace; font-size: 11px; fill: #10b981; font-weight: bold; transition: all 0.2s; }
-.svg-2d-container .eq-title { font-family: sans-serif; font-size: 12px; fill: #f8fafc; font-weight: bold; pointer-events: none; }
-
-.svg-2d-container.custom-scrollbar::-webkit-scrollbar { height: 8px; }
-.svg-2d-container.custom-scrollbar::-webkit-scrollbar-track { background: #1e293b; border-radius: 4px; }
-.svg-2d-container.custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
 
 /* Seções com content-visibility: o navegador pode pular layout/paint quando fora da viewport */
 .scada-section-offscreen {

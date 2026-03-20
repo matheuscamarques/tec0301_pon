@@ -1,5 +1,5 @@
 defmodule Tec0301Pon.PON.ServiceTest do
-  use ExUnit.Case, async: false
+  use Tec0301Pon.PonCase
   alias Tec0301Pon.PON.Fato
   alias Tec0301Pon.PON.Regra
   alias Tec0301Pon.PON.Service
@@ -9,6 +9,7 @@ defmodule Tec0301Pon.PON.ServiceTest do
       {:ok, _} -> :ok
       {:error, {:already_started, _}} -> :ok
     end
+
     :ok
   end
 
@@ -40,12 +41,14 @@ defmodule Tec0301Pon.PON.ServiceTest do
     Service.registrar_fato(n, n)
     hit = :erlang.make_ref()
     test_pid = self()
+
     {:ok, regra_pid} =
       Regra.start_link(
         [n],
         fn m -> m[n] == 2 end,
         fn _ -> send(test_pid, hit) end
       )
+
     Service.registrar_regra(:r_glob, regra_pid)
     Fato.atualizar(n, 1)
     Fato.atualizar(n, 2)
@@ -84,5 +87,38 @@ defmodule Tec0301Pon.PON.ServiceTest do
     Service.registrar_regra(:r_wait, regra_pid)
     Process.sleep(50)
     assert Service.wait_until_queues_empty(200) == :ok
+  end
+
+  test "start_link accepts custom name" do
+    name = :"PonSvcNamed#{System.unique_integer([:positive])}"
+
+    case Service.start_link(name: name) do
+      {:ok, _} -> :ok
+      {:error, {:already_started, _}} -> :ok
+    end
+
+    assert Process.whereis(name) != nil
+    GenServer.stop(name, :normal, 5_000)
+  end
+
+  test "wait_until_queues_empty returns timeout when a registered pid stays busy" do
+    {:ok, _} = Service.start_link(name: :pon_svc_busy_wait)
+
+    busy = spawn(fn -> Process.sleep(60_000) end)
+    send(busy, :will_queue)
+    Service.registrar_regra(:busy_holder, busy)
+    assert Service.wait_until_queues_empty(80) == :timeout
+    Process.exit(busy, :kill)
+    GenServer.stop(:pon_svc_busy_wait, :normal, 5_000)
+  end
+
+  test "wait_until_queues_empty treats dead rule pid as non-busy" do
+    {:ok, _} = Service.start_link(name: :pon_svc_dead_wait)
+    dead = spawn(fn -> :ok end)
+    ref = Process.monitor(dead)
+    assert_receive {:DOWN, ^ref, :process, ^dead, _}, 500
+    Service.registrar_regra(:dead_r, dead)
+    assert Service.wait_until_queues_empty(100) == :ok
+    GenServer.stop(:pon_svc_dead_wait, :normal, 5_000)
   end
 end

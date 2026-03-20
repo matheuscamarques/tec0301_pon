@@ -68,7 +68,7 @@ defmodule Tec0301Pon.Examples.PredioInteligente.Regras do
   defrule(RegraLuzOff,
     watch: [:predio_ocupacao_sala, :predio_hora_noturna, :predio_luz_sala_ligada],
     when:
-      (memoria[:predio_ocupacao_sala] || true) == false and
+      (memoria[:predio_ocupacao_sala] || false) == false and
         (memoria[:predio_hora_noturna] || false) == true and
         (memoria[:predio_luz_sala_ligada] || false) == true,
     do:

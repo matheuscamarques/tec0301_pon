@@ -76,9 +76,11 @@ defmodule Tec0301Pon.PON.Service do
     for {_nome, key} <- estado.fatos do
       Tec0301Pon.PON.Fato.reset_estatisticas(key)
     end
+
     for {_id, pid} <- estado.regras do
       Tec0301Pon.PON.Regra.reset_estatisticas(pid)
     end
+
     {:noreply, estado}
   end
 
@@ -92,6 +94,7 @@ defmodule Tec0301Pon.PON.Service do
     regras_count =
       Enum.reduce(estado.regras, %{notificacoes: 0, execucoes: 0}, fn {_id, pid}, acc ->
         s = Tec0301Pon.PON.Regra.estatisticas(pid)
+
         %{
           notificacoes: acc.notificacoes + s.notificacoes,
           execucoes: acc.execucoes + s.execucoes
@@ -102,6 +105,7 @@ defmodule Tec0301Pon.PON.Service do
       fatos: fatos_count,
       regras: regras_count
     }
+
     {:reply, result, estado}
   end
 
@@ -109,11 +113,13 @@ defmodule Tec0301Pon.PON.Service do
   def handle_call({:wait_until_queues_empty, timeout_ms}, from, estado) do
     pids = Enum.map(estado.regras, fn {_id, pid} -> pid end)
     server = self()
+
     spawn(fn ->
       deadline = System.monotonic_time(:millisecond) + timeout_ms
       result = wait_loop(pids, deadline)
       send(server, {:wait_done, from, result})
     end)
+
     {:noreply, estado}
   end
 
@@ -125,6 +131,7 @@ defmodule Tec0301Pon.PON.Service do
 
   defp wait_loop(pids, deadline) do
     now = System.monotonic_time(:millisecond)
+
     if now >= deadline do
       :timeout
     else
@@ -135,6 +142,7 @@ defmodule Tec0301Pon.PON.Service do
             _ -> false
           end
         end)
+
       if busy do
         Process.sleep(10)
         wait_loop(pids, deadline)

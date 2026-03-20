@@ -4,6 +4,9 @@ defmodule Tec0301Pon.PON.Premissa do
   apenas quando o resultado booleano **muda**. Permite reutilizar a mesma premissa
   em várias regras (estilo NOP.Element.Premise) sem duplicar lógica.
 
+  Para combinar várias saídas booleanas (AND/OR), use `Tec0301Pon.PON.Condicao` ou o macro
+  `defcondicao` em `Tec0301Pon.PON.Builder`.
+
   Usa o mesmo barramento Registry que Fato/Regra; não adiciona links no Fato.
   O fato derivado deve existir antes (ou será criado com valor inicial false se
   `criar_fato_derivado: true` em opts).
@@ -25,6 +28,7 @@ defmodule Tec0301Pon.PON.Premissa do
   def start_link(nome_fato_derivado, fatos_fonte, condicao_fn, opts \\ [])
       when is_atom(nome_fato_derivado) and is_list(fatos_fonte) and is_function(condicao_fn, 1) do
     criar = Keyword.get(opts, :criar_fato_derivado, false)
+
     state = %{
       nome_fato_derivado: nome_fato_derivado,
       fatos_fonte: fatos_fonte,
@@ -33,6 +37,7 @@ defmodule Tec0301Pon.PON.Premissa do
       resultado_anterior: nil,
       criar_fato_derivado: criar
     }
+
     GenServer.start_link(__MODULE__, state)
   end
 
@@ -42,6 +47,7 @@ defmodule Tec0301Pon.PON.Premissa do
       case Process.whereis(estado.nome_fato_derivado) do
         nil ->
           {:ok, _} = Tec0301Pon.PON.Fato.start_link(estado.nome_fato_derivado, false)
+
         _ ->
           :ok
       end
@@ -77,8 +83,7 @@ defmodule Tec0301Pon.PON.Premissa do
       Tec0301Pon.PON.Fato.atualizar(estado.nome_fato_derivado, novo_resultado)
     end
 
-    {:noreply,
-     %{estado | memoria: nova_memoria, resultado_anterior: novo_resultado}}
+    {:noreply, %{estado | memoria: nova_memoria, resultado_anterior: novo_resultado}}
   end
 
   def handle_info(_msg, estado), do: {:noreply, estado}

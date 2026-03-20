@@ -24,28 +24,24 @@ defmodule SimulacoesVisuais.SmartBreweryMonteCarloIntegrationTest do
         :ok
     end
 
+    _ = MonteCarlo.stop_loop()
     :ok
   end
 
-  test "one tick updates FBE_03 pump_speed, diff_pressure, wort_clarity within ranges" do
-    Process.send(Process.whereis(SimulacoesVisuais.SmartBreweryMonteCarlo), :tick, [])
-    Process.sleep(150)
+  test "run_tick_sync applies one Monte Carlo tick and FBE_03 facts stay numeric" do
+    # Regras podem zerar a bomba (R_09); não fixamos [20,80] para o pump.
+    Fato.atualizar(:fbe_03_pump_speed, 45)
+    assert :ok == MonteCarlo.run_tick_sync()
+    Process.sleep(250)
 
     pump_speed = Fato.obter(:fbe_03_pump_speed)
     diff_pressure = Fato.obter(:fbe_03_diff_pressure)
     wort_clarity = Fato.obter(:fbe_03_wort_clarity)
 
-    assert is_number(pump_speed), "pump_speed should be a number"
-    assert is_number(diff_pressure), "diff_pressure should be a number"
-    assert is_number(wort_clarity), "wort_clarity should be a number"
-
-    assert pump_speed >= 20 and pump_speed <= 80,
-           "pump_speed #{pump_speed} outside [20, 80]"
-
-    assert diff_pressure >= 40 and diff_pressure <= 200,
-           "diff_pressure #{diff_pressure} outside [40, 200]"
-
-    assert wort_clarity >= 5 and wort_clarity <= 80,
-           "wort_clarity #{wort_clarity} outside [5, 80]"
+    assert is_number(pump_speed)
+    assert is_number(diff_pressure)
+    assert is_number(wort_clarity)
+    assert diff_pressure >= 40 and diff_pressure <= 200
+    assert wort_clarity >= 5 and wort_clarity <= 80
   end
 end

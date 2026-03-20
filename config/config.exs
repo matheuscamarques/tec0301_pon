@@ -20,13 +20,35 @@ config :simulacoes_visuais,
   # - flush_interval_ms: janela de throttle em ms (100–250 recomendado). Default 250.
   # - max_buffer_size: flush imediato ao atingir este tamanho (backpressure). Default 100.
   telemetry_batcher: [flush_interval_ms: 250, max_buffer_size: 100],
+  # TelemetryProducer: tamanho máximo da fila (default 5000). Excedente descartado (evita OOM).
+  # telemetry_producer_max_queue: 5_000,
+  # TelemetryPipeline (Broadway): batch_size (default 200) e batch_timeout_ms (default 300).
+  # telemetry_pipeline_batch_size: 250,
+  # telemetry_pipeline_batch_timeout_ms: 350,
+  # Concorrência dos processadores/batchers (default 1 cada). Subir só após medir — artigo 20 §6.
+  # telemetry_pipeline_processor_concurrency: 2,
+  # telemetry_pipeline_batcher_concurrency: 2,
+  # monte_carlo_facts_per_tick_min / monte_carlo_facts_per_tick_max (dev: env MONTE_CARLO_FACTS_PER_TICK_*)
+  # TelemetryAsyncWriter: max lotes em fila (default 50). Excedente descarta o mais antigo.
+  # telemetry_async_writer_max_queue: 50,
+  # push_liveview_telemetry: false com SIMULACOES_HEADLESS (dev) — sem push ao LiveViewEventBatcher.
+  # rule_event_writer_max_pending / rule_event_writer_batch_size — fila de regras antes do insert_all.
+  # anomaly_event_writer_max_pending / anomaly_event_writer_batch_size — idem anomalias.
+  # oee_snapshot_writer_max_pending — fila curta de snapshots OEE.
   # LiveViewEventBatcher: janela de eventos para a LiveView (reduz sobrecarga; 1 mensagem por janela).
-  # - window_ms: janela em ms (80–150 recomendado). Default 120.
-  # - max_buffer_size: flush imediato ao atingir este tamanho. Default 80.
-  live_view_batcher: [window_ms: 120, max_buffer_size: 80],
-  # Power BI: URL do relatório para embed na aba "Power BI" do Smart Brewery LiveView (opcional).
-  # Ex.: "https://app.powerbi.com/..." (embed do Power BI Service ou Publish to web). Se nil, a aba exibe instruções.
-  power_bi_report_url: nil
+  # - window_ms: janela em ms. Valores maiores = menos mensagens à LiveView (UI um pouco menos “ao vivo”).
+  # - max_buffer_size: flush imediato ao atingir este tamanho.
+  live_view_batcher: [window_ms: 200, max_buffer_size: 100],
+  # Debounce na SmartBreweryLive após receber {:batch, _} antes de assign do mapa @fatos inteiro.
+  smart_brewery_live_flush_pending_ms: 280,
+  # Mínimo entre broadcasts PubSub `smart_brewery:oee` (e gravações em oee_snapshots quando TSDB ativo). 0 = sem throttle.
+  # dev.exs usa default 1500 ms via OEE_PUBSUB_MIN_INTERVAL_MS.
+  oee_pubsub_min_interval_ms: 1_500,
+  # Retenção inicial da hypertable `telemetry_events` vem da migration (7 dias). Para estender no cluster:
+  #   mix retention.tsdb --days N   (em apps/simulacoes_visuais, com :tsdb_enabled true)
+  telemetry_retention_default_days: 7,
+  # Painel BI (aba BI da SmartBreweryLive): reconsulta `SmartBreweryBI.dashboard_data/1` a cada N ms (só com TSDB ativo). 0 = desliga.
+  bi_dashboard_refresh_ms: 10_000
 
 # Configures the endpoint
 config :simulacoes_visuais, SimulacoesVisuaisWeb.Endpoint,
@@ -79,6 +101,28 @@ config :phoenix, :json_library, Jason
 
 # TimescaleDB (artigo 07 §4.2). Repo e TelemetryWriter iniciam quando :tsdb_enabled é true (dev.exs ou DATABASE_URL).
 config :simulacoes_visuais, ecto_repos: [SimulacoesVisuais.Repo]
+
+# Push opcional para Power BI REST (docs/power-bi-realtime.md). Ative via POWERBI_PUSH_* em runtime.exs.
+config :simulacoes_visuais, :power_bi_push,
+  enabled: false,
+  group_id: nil,
+  dataset_id: nil,
+  table_name: "Telemetry",
+  access_token: nil,
+  min_interval_ms: 5_000,
+  max_rows_per_push: 500,
+  max_buffer_rows: 10_000,
+  include_labels: true
+
+# Log em arquivo para severidade >= level (default :error). Caminho: CRITICAL_LOG_FILE ou priv/log/critical.log.
+# Desligar: enabled: false (ex.: test.exs) ou CRITICAL_LOG_FILE="".
+config :simulacoes_visuais, :critical_log_file,
+  enabled: true,
+  level: :error,
+  max_no_bytes: 10_485_760,
+  max_no_files: 5,
+  format: "$time $metadata[$level] $message\n",
+  metadata: [:request_id]
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

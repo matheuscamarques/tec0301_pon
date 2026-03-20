@@ -18,7 +18,13 @@ defmodule SimulacoesVisuais.TelemetryEvent do
 
   @doc """
   Converte uma lista de atualizações {nome_fato, valor} em listas de atributos
-  para insert_all. Apenas valores numéricos ou convertíveis são persistidos.
+  para insert_all.
+
+  - Números → `value_float` (e `value_int`/`value_str` nulos).
+  - Booleanos → `value_int` 0/1 e `value_str` \"true\"/\"false\" (CAGGs TimescaleDB
+    continuam só com `value_float`; use a tabela bruta para ML com sinais categóricos).
+  - Outros átomos (ex.: `:closed`, `:on`) → `value_str` com `Atom.to_string/1`.
+  - `nil` e tipos não suportados → não gera linha.
   """
   def changesets_from_batch(updates, now \\ DateTime.utc_now()) do
     Enum.flat_map(updates, fn {nome, valor} ->
@@ -29,6 +35,8 @@ defmodule SimulacoesVisuais.TelemetryEvent do
     end)
   end
 
+  defp to_row(_nome, nil, _now), do: nil
+
   defp to_row(nome, valor, now) when is_number(valor) do
     %{
       ts: now,
@@ -36,6 +44,30 @@ defmodule SimulacoesVisuais.TelemetryEvent do
       value_float: to_float(valor),
       value_int: nil,
       value_str: nil,
+      inserted_at: now,
+      updated_at: now
+    }
+  end
+
+  defp to_row(nome, valor, now) when is_boolean(valor) do
+    %{
+      ts: now,
+      fact_name: Atom.to_string(nome),
+      value_float: nil,
+      value_int: if(valor, do: 1, else: 0),
+      value_str: if(valor, do: "true", else: "false"),
+      inserted_at: now,
+      updated_at: now
+    }
+  end
+
+  defp to_row(nome, valor, now) when is_atom(valor) do
+    %{
+      ts: now,
+      fact_name: Atom.to_string(nome),
+      value_float: nil,
+      value_int: nil,
+      value_str: Atom.to_string(valor),
       inserted_at: now,
       updated_at: now
     }

@@ -7,8 +7,11 @@ defmodule Tec0301Pon.Application do
 
   @impl true
   def start(_type, _args) do
+    :ok = Tec0301Pon.PON.Fato.ensure_ets!()
+
     children = [
-      {Registry, keys: :duplicate, name: Tec0301Pon.PON.PubSub}
+      {Registry,
+       keys: :duplicate, name: Tec0301Pon.PON.PubSub, partitions: System.schedulers_online()}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

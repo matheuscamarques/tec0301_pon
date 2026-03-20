@@ -36,8 +36,12 @@ defmodule SimulacoesVisuais.SmartBrewery.FBE03Darcy do
   @mu_temp_factor 0.02
   @mu_k_factor 0.08
 
+  # Estado como tupla etiquetada `{:fbe03_darcy, k, prev_rake_height, t_flow}` — menos overhead
+  # que mapa pequeno no heap do processo (POC alinhado a docs de desempenho).
+  @state_tag :fbe03_darcy
+
   def start_link(_opts \\ []) do
-    GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
+    GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
   end
 
   @doc "Avança um tick: lê PON, atualiza k (ODE), calcula ΔP e wort_clarity e escreve fatos."
@@ -46,12 +50,12 @@ defmodule SimulacoesVisuais.SmartBrewery.FBE03Darcy do
   end
 
   @impl true
-  def init(_opts) do
-    {:ok, %{k: 1.0, prev_rake_height: 50, t_flow: 0.0}}
+  def init(:ok) do
+    {:ok, {@state_tag, 1.0, 50, 0.0}}
   end
 
   @impl true
-  def handle_cast(:tick, %{k: k, prev_rake_height: prev_rake, t_flow: t_flow} = state) do
+  def handle_cast(:tick, {@state_tag, k, prev_rake, t_flow}) do
     pump_speed = safe_obter_number(:fbe_03_pump_speed, 40)
     sparge_temp = safe_obter_number(:fbe_03_sparge_water_temp, 75)
     rake_height = safe_obter_number(:fbe_03_rake_height, 50)
@@ -91,7 +95,7 @@ defmodule SimulacoesVisuais.SmartBrewery.FBE03Darcy do
       e -> Logger.warning("[FBE03Darcy] Falha ao atualizar fatos: #{inspect(e)}")
     end
 
-    {:noreply, %{state | k: k_new, prev_rake_height: rake_height, t_flow: t_flow_new}}
+    {:noreply, {@state_tag, k_new, rake_height, t_flow_new}}
   end
 
   defp safe_obter_number(nome, default) do

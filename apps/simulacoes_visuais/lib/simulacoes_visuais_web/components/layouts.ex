@@ -5,6 +5,8 @@ defmodule SimulacoesVisuaisWeb.Layouts do
   """
   use SimulacoesVisuaisWeb, :html
 
+  alias SimulacoesVisuaisWeb.TechGlossary
+
   # Embed all files in layouts/* within this module.
   # The default root.html.heex file contains the HTML
   # skeleton of your application, namely HTML headers
@@ -50,7 +52,11 @@ defmodule SimulacoesVisuaisWeb.Layouts do
           class="flex w-fit items-center gap-2 transition-opacity hover:opacity-90 focus-ring rounded"
         >
           <img src={~p"/images/logo.svg"} width="36" height="36" alt="TEC0301 PON" />
-          <span class="text-sm font-semibold text-base-content">Gêmeo Digital</span>
+          <span class="text-sm font-semibold text-base-content">
+            <.technical_hint title={TechGlossary.entry!(:gemeo_digital).abbr_title}>
+              Gêmeo Digital
+            </.technical_hint>
+          </span>
         </a>
       </div>
       <nav class="flex-none" aria-label="Principal">
@@ -75,6 +81,23 @@ defmodule SimulacoesVisuaisWeb.Layouts do
               ]}
             >
               Smart Brewery
+            </a>
+          </li>
+          <li>
+            <a
+              href={~p"/smart-brewery/ml-predictions#glossario-ml"}
+              class={[
+                "btn btn-ghost btn-sm rounded transition-colors focus-ring",
+                @current_path == "/smart-brewery/ml-predictions" && "btn-active"
+              ]}
+              title={
+                TechGlossary.entry!(:ml).abbr_title <>
+                  " Predições importadas para " <> TechGlossary.entry!(:tsdb).label <> "."
+              }
+              aria-label="Predições de aprendizagem automática (ML); glossário na página de predições"
+            >
+              Predições
+              <.technical_hint title={TechGlossary.entry!(:ml).abbr_title}>ML</.technical_hint>
             </a>
           </li>
           <li class="pl-2 border-l border-base-300">

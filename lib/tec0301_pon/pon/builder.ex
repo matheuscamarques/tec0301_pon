@@ -1,10 +1,12 @@
 defmodule Tec0301Pon.PON.Builder do
   @moduledoc """
-  DSL PON: regras, premissas e opcionalmente condição por string.
+  DSL PON: regras, premissas, condições agregadoras e opcionalmente condição por string.
 
   - **defrule** – regra com `watch:`, `when:` (AST ou string) e `do:` (bloco ou `instigations: [...]`).
+  - Opcional: **`edge_triggered: true`** — só executa a ação na transição falso→verdadeiro da condição (ver `Tec0301Pon.PON.Regra`).
   - **defpremissa** – premissa reutilizável: observa fatos, avalia condição e atualiza um fato derivado quando o booleano muda.
-  - Regras e premissas geram submódulos com `start_link/0`; use-os no bootstrap do seu grafo PON.
+  - **defcondicao** – condição de primeira classe: agrega vários fatos (em geral booleans de premissas) com `merge: :all | :any` ou `when:` customizado.
+  - Regras, premissas e condições geram submódulos com `start_link/0`; use-os no bootstrap do seu grafo PON.
   """
   defmacro __using__(_opts) do
     quote do
@@ -31,15 +33,25 @@ defmodule Tec0301Pon.PON.Builder do
   Inicie com ModuloGerado.start_link/0.
   """
   # Quando when: é string, usa avaliação por Code.eval_string
-  defmacro defrule(nome_da_regra, watch: fatos, when: condicao, do: acao) when is_binary(condicao) do
-    build_defrule_string(nome_da_regra, fatos, condicao, acao, __CALLER__)
+  defmacro defrule(nome_da_regra, watch: fatos, when: condicao, do: acao)
+           when is_binary(condicao) do
+    build_defrule_string(nome_da_regra, fatos, condicao, acao, __CALLER__, false)
+  end
+
+  defmacro defrule(nome_da_regra, watch: fatos, when: condicao, edge_triggered: edge?, do: acao)
+           when is_binary(condicao) do
+    build_defrule_string(nome_da_regra, fatos, condicao, acao, __CALLER__, edge?)
   end
 
   defmacro defrule(nome_da_regra, watch: fatos, when: condicao, do: acao) do
-    build_defrule_ast(nome_da_regra, fatos, condicao, acao, __CALLER__)
+    build_defrule_ast(nome_da_regra, fatos, condicao, acao, __CALLER__, false)
   end
 
-  defp build_defrule_ast(nome_da_regra, fatos, condicao, acao, caller) do
+  defmacro defrule(nome_da_regra, watch: fatos, when: condicao, edge_triggered: edge?, do: acao) do
+    build_defrule_ast(nome_da_regra, fatos, condicao, acao, __CALLER__, edge?)
+  end
+
+  defp build_defrule_ast(nome_da_regra, fatos, condicao, acao, caller, edge_triggered?) do
     name_atoms =
       case nome_da_regra do
         {:__aliases__, _, parts} -> parts
@@ -53,12 +65,19 @@ defmodule Tec0301Pon.PON.Builder do
         [instigations: instigation_list] ->
           ex =
             quote do
+              _ = var!(memoria)
+
               for {mod, fun, args} <- unquote(instigation_list), do: Task.start(mod, fun, args)
             end
+
           sl =
             quote do
-              Tec0301Pon.PON.Regra.start_link(unquote(fatos), __MODULE__, instigation_list: unquote(instigation_list))
+              Tec0301Pon.PON.Regra.start_link(unquote(fatos), __MODULE__,
+                instigation_list: unquote(instigation_list),
+                edge_triggered: unquote(edge_triggered?)
+              )
             end
+
           {ex, sl}
 
         _ ->
@@ -67,7 +86,14 @@ defmodule Tec0301Pon.PON.Builder do
               var!(memoria)
               unquote(acao)
             end
-          sl = quote(do: Tec0301Pon.PON.Regra.start_link(unquote(fatos), __MODULE__))
+
+          sl =
+            quote do
+              Tec0301Pon.PON.Regra.start_link(unquote(fatos), __MODULE__,
+                edge_triggered: unquote(edge_triggered?)
+              )
+            end
+
           {ex, sl}
       end
 
@@ -135,7 +161,107 @@ defmodule Tec0301Pon.PON.Builder do
     end
   end
 
-  defp build_defrule_string(nome_da_regra, fatos, expr_string, acao, caller) do
+  @doc """
+  Define uma Condição PON (agregador lógico sobre fatos, em geral booleans de premissas).
+
+  Use `merge: :all` para AND (todos os valores observados devem ser estritamente `true`)
+  ou `merge: :any` para OR. Alternativa: `when:` com expressão sobre `memoria` (mapa fato => valor).
+
+  Exemplo:
+
+      defcondicao AlarmeHabilitado,
+        watch: [:temp_alta, :umidade_baixa],
+        merge: :all,
+        derive: :cond_alarme,
+        criar_fato: true
+
+      defrule DispararAlarme,
+        watch: [:cond_alarme],
+        when: memoria[:cond_alarme] == true,
+        do: ...
+
+  Opções obrigatórias: `watch:`, `derive:` e **uma** de `merge:` ou `when:`.
+  Opcional: `criar_fato: true` — cria o fato derivado com `false` se não existir.
+  """
+  defmacro defcondicao(nome_condicao, opts) when is_list(opts) do
+    fatos = Keyword.fetch!(opts, :watch)
+    derive = Keyword.fetch!(opts, :derive)
+    criar = Keyword.get(opts, :criar_fato, false)
+
+    cond do
+      Keyword.has_key?(opts, :when) and Keyword.has_key?(opts, :merge) ->
+        raise ArgumentError, "defcondicao: use either :merge or :when, not both"
+
+      Keyword.has_key?(opts, :when) ->
+        expr = Keyword.fetch!(opts, :when)
+        build_defcondicao_when(nome_condicao, fatos, derive, expr, criar, __CALLER__)
+
+      Keyword.has_key?(opts, :merge) ->
+        merge = Keyword.fetch!(opts, :merge)
+        build_defcondicao_merge(nome_condicao, fatos, derive, merge, criar, __CALLER__)
+
+      true ->
+        raise ArgumentError, "defcondicao requires :merge (:all | :any) or :when:"
+    end
+  end
+
+  defp build_defcondicao_merge(nome_condicao, fatos, derive, merge, criar, caller) do
+    unless merge in [:all, :any] do
+      raise ArgumentError, "defcondicao :merge must be :all or :any, got: #{inspect(merge)}"
+    end
+
+    name_atoms =
+      case nome_condicao do
+        {:__aliases__, _, parts} -> parts
+        other when is_atom(other) -> [other]
+      end
+
+    modulo = Module.concat([caller.module | name_atoms])
+
+    quote do
+      defmodule unquote(modulo) do
+        @moduledoc false
+
+        def start_link do
+          Tec0301Pon.PON.Condicao.start_link(
+            unquote(derive),
+            unquote(fatos),
+            merge: unquote(merge),
+            criar_fato_derivado: unquote(criar)
+          )
+        end
+      end
+    end
+  end
+
+  defp build_defcondicao_when(nome_condicao, fatos, derive, expr, criar, caller) do
+    name_atoms =
+      case nome_condicao do
+        {:__aliases__, _, parts} -> parts
+        other when is_atom(other) -> [other]
+      end
+
+    modulo = Module.concat([caller.module | name_atoms])
+
+    quote do
+      defmodule unquote(modulo) do
+        @moduledoc false
+
+        def combine(var!(memoria)), do: unquote(expr)
+
+        def start_link do
+          Tec0301Pon.PON.Condicao.start_link(
+            unquote(derive),
+            unquote(fatos),
+            combine_fn: &combine/1,
+            criar_fato_derivado: unquote(criar)
+          )
+        end
+      end
+    end
+  end
+
+  defp build_defrule_string(nome_da_regra, fatos, expr_string, acao, caller, edge_triggered?) do
     name_atoms =
       case nome_da_regra do
         {:__aliases__, _, parts} -> parts
@@ -147,20 +273,37 @@ defmodule Tec0301Pon.PON.Builder do
     {executar_impl, start_link_impl} =
       case acao do
         [instigations: instigation_list] ->
-          ex = quote do
-            for {mod, fun, args} <- unquote(instigation_list), do: Task.start(mod, fun, args)
-          end
-          sl = quote do
-            Tec0301Pon.PON.Regra.start_link(unquote(fatos), __MODULE__, instigation_list: unquote(instigation_list))
-          end
+          ex =
+            quote do
+              _ = memoria
+
+              for {mod, fun, args} <- unquote(instigation_list), do: Task.start(mod, fun, args)
+            end
+
+          sl =
+            quote do
+              Tec0301Pon.PON.Regra.start_link(unquote(fatos), __MODULE__,
+                instigation_list: unquote(instigation_list),
+                edge_triggered: unquote(edge_triggered?)
+              )
+            end
+
           {ex, sl}
 
         _ ->
-          ex = quote do
-            memoria
-            unquote(acao)
-          end
-          sl = quote(do: Tec0301Pon.PON.Regra.start_link(unquote(fatos), __MODULE__))
+          ex =
+            quote do
+              _ = memoria
+              unquote(acao)
+            end
+
+          sl =
+            quote do
+              Tec0301Pon.PON.Regra.start_link(unquote(fatos), __MODULE__,
+                edge_triggered: unquote(edge_triggered?)
+              )
+            end
+
           {ex, sl}
       end
 
@@ -169,7 +312,7 @@ defmodule Tec0301Pon.PON.Builder do
         @moduledoc false
 
         def avaliar(memoria) do
-          {result, _} = Code.eval_string(unquote(expr_string), [memoria: memoria])
+          {result, _} = Code.eval_string(unquote(expr_string), memoria: memoria)
           result
         end
 

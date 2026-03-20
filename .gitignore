@@ -28,3 +28,9 @@ tec0301_pon-*.tar
 
 /.cursor/
 ./.cursor/
+
+# Logs da aplicação (handler CriticalLogHandler)
+apps/simulacoes_visuais/priv/log/*.log
+
+# npm (Fabric.js) — use package-lock.json + mix assets.setup
+apps/simulacoes_visuais/assets/node_modules/

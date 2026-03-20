@@ -10,7 +10,7 @@ defmodule Tec0301Pon.Examples.SmartBrewery.FBE_01 do
     current = Fato.obter(:fbe_01_motor_rpm)
     novo = max(0, current - 300)
     Fato.atualizar(:fbe_01_motor_rpm, novo)
-    Logger.info("[FBE_01] R_04: reduce_motor_rpm — motor_rpm #{current} → #{novo}")
+    Logger.debug("[FBE_01] R_04: reduce_motor_rpm — motor_rpm #{current} → #{novo}")
   end
 
   def close_feed_valve do
@@ -99,10 +99,8 @@ defmodule Tec0301Pon.Examples.SmartBrewery.FBE_05 do
     current = Fato.obter(:fbe_05_glycol_valve_pos)
     novo = min(100, current + 10)
     Fato.atualizar(:fbe_05_glycol_valve_pos, novo)
-
-    Logger.info(
-      "[FBE_05] R_07/R_10: increase_glycol_valve — glycol_valve_pos #{current} → #{novo}%"
-    )
+    msg = "[FBE_05] R_07/R_10: increase_glycol_valve — glycol_valve_pos #{current} → #{novo}%"
+    Logger.info(msg)
   end
 end
 

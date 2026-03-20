@@ -30,6 +30,7 @@ defmodule SimulacoesVisuaisWeb.CoreComponents do
   use Gettext, backend: SimulacoesVisuaisWeb.Gettext
 
   alias Phoenix.LiveView.JS
+  alias SimulacoesVisuaisWeb.TechGlossary
 
   @doc """
   Renders flash notices.
@@ -431,20 +432,26 @@ defmodule SimulacoesVisuaisWeb.CoreComponents do
 
   attr :id, :string,
     required: true,
-    doc: "DOM id for the iframe wrapper (e.g. fbe-detail-2d-wrapper)"
+    doc: "DOM id for the iframe wrapper (e.g. fbe-detail-3d-wrapper)"
 
   attr :fbe_heading, :string, required: true, doc: "Heading text (e.g. Detalhe FBE_01)"
   attr :fbe_label, :string, required: true, doc: "FBE description label"
-  attr :rows, :list, required: true, doc: "List of {label, value} for the attributes table"
+
+  attr :rows, :list,
+    required: true,
+    doc: "List of {label, descricao, value} for the attributes table"
+
   attr :selected_fbe, :integer, required: true, doc: "FBE id for data-fbe-id"
 
   attr :iframe_facts, :list,
     default: [],
-    doc: "List of %{label: x, value: y} for the 3D iframe hook"
+    doc: "List of %{label:, description:, value:} for the 3D iframe hook"
 
   attr :static_3d_url, :string, default: nil, doc: "URL for the 3D detail iframe, or nil to hide"
 
-  attr :fbe_descricao_long, :string, default: nil, doc: "Long description of the FBE (what it is, how it acts in PON)"
+  attr :fbe_descricao_long, :string,
+    default: nil,
+    doc: "Long description of the FBE (what it is, how it acts in PON)"
 
   def fbe_detail_panel(assigns) do
     ~H"""
@@ -465,17 +472,26 @@ defmodule SimulacoesVisuaisWeb.CoreComponents do
             </p>
           <% end %>
           <table class="table table-xs table-zebra">
+            <caption class="sr-only">
+              Atributos do equipamento em tempo real: nome, descrição e valor.
+            </caption>
             <thead>
               <tr>
-                <th class="font-mono text-xs">Atributo</th>
-                <th class="text-right font-mono text-xs">Valor</th>
+                <th scope="col" class="font-mono text-xs">Atributo</th>
+                <th scope="col" class="text-xs font-medium">Descrição</th>
+                <th scope="col" class="text-right font-mono text-xs">Valor</th>
               </tr>
             </thead>
             <tbody>
-              <%= for {label, value} <- @rows do %>
+              <%= for {label, descricao, value} <- @rows do %>
                 <tr>
-                  <td class="font-mono text-xs">{label}</td>
-                  <td class="text-right font-mono text-xs">{value}</td>
+                  <th scope="row" class="font-mono text-xs font-normal align-top">
+                    <.technical_hint title={descricao}>
+                      {label}
+                    </.technical_hint>
+                  </th>
+                  <td class="text-xs text-base-content/70 align-top max-w-md">{descricao}</td>
+                  <td class="text-right font-mono text-xs align-top">{value}</td>
                 </tr>
               <% end %>
             </tbody>
@@ -502,6 +518,146 @@ defmodule SimulacoesVisuaisWeb.CoreComponents do
         </iframe>
       </div>
     <% end %>
+    """
+  end
+
+  @doc """
+  `<abbr>` com o mesmo estilo visual que `<.tech_term>` para tooltips arbitrários (ex.: nome de atributo com texto de `FatoDescriptions`).
+  """
+  attr :title, :string, required: true, doc: "texto do tooltip nativo (`title`)"
+  attr :class, :string, default: nil, doc: "classes extra no `<abbr>`"
+
+  slot :inner_block, required: true
+
+  def technical_hint(assigns) do
+    ~H"""
+    <abbr class={tech_hint_abbr_classes(@class)} title={@title}>
+      {render_slot(@inner_block)}
+    </abbr>
+    """
+  end
+
+  defp tech_hint_abbr_classes(extra) do
+    ["cursor-help border-b border-dotted border-base-content/40 decoration-from-font", extra]
+  end
+
+  @doc """
+  Marca um termo técnico com `<abbr title=...>` e, opcionalmente, ligação ao glossário e `aria-describedby`.
+
+  Use `aria_describedby_glossary` quando a secção `<.glossary_section>` com o mesmo termo estiver na mesma página.
+  """
+  attr :term, :atom, required: true, doc: "chave em `TechGlossary`"
+  attr :text, :string, default: nil, doc: "texto visível em vez de `entry.label` (ex.: plural)"
+  attr :class, :string, default: nil, doc: "classes extra no <abbr>"
+
+  attr :glossary_href, :string,
+    default: nil,
+    doc: "URL do ancoramento (ex.: #glossario-ml); por omissão com link ativo usa fragmento local"
+
+  attr :show_glossary_link, :boolean, default: false, doc: "mostra link '?' para o glossário"
+
+  attr :aria_describedby_glossary, :boolean,
+    default: false,
+    doc: "liga o leitor de ecrã à definição `<dd id=...>` do glossário"
+
+  def tech_term(assigns) do
+    e = TechGlossary.entry!(assigns.term)
+    slug = TechGlossary.fragment_id(assigns.term)
+    def_id = TechGlossary.definition_fragment_id(assigns.term)
+
+    href =
+      cond do
+        assigns.show_glossary_link == false ->
+          nil
+
+        assigns[:glossary_href] && assigns.glossary_href != "" ->
+          assigns.glossary_href
+
+        true ->
+          "##{slug}"
+      end
+
+    abbr_class = tech_hint_abbr_classes(assigns[:class])
+
+    display = assigns[:text] || e.label
+
+    assigns =
+      assigns
+      |> assign(:entry, e)
+      |> assign(:display, display)
+      |> assign(:href, href)
+      |> assign(:def_id, def_id)
+      |> assign(:abbr_class, abbr_class)
+      |> assign(
+        :describedby,
+        if(assigns.aria_describedby_glossary, do: def_id, else: nil)
+      )
+
+    ~H"""
+    <span class="inline-flex items-baseline gap-0.5 break-words">
+      <abbr class={@abbr_class} title={@entry.abbr_title} aria-describedby={@describedby}>
+        {@display}
+      </abbr>
+      <%= if @href && @show_glossary_link do %>
+        <a
+          href={@href}
+          class="text-primary text-xs font-medium shrink-0 hover:underline focus:outline-none focus:ring-2 focus:ring-primary/40 rounded px-0.5"
+          aria-label={"Ver definição de #{@display} no glossário"}
+        >
+          ?
+        </a>
+      <% end %>
+    </span>
+    """
+  end
+
+  @doc """
+  Secção de glossário (`<dl>`) com âncoras estáveis para `TechGlossary.fragment_id/1`.
+  """
+  attr :terms, :list, required: true, doc: "lista de átomos `TechGlossary`"
+  attr :id, :string, default: "glossario", doc: "id da secção"
+
+  attr :heading_id, :string,
+    default: "glossario-heading",
+    doc: "id do título para aria-labelledby"
+
+  def glossary_section(assigns) do
+    entries =
+      for t <- assigns.terms, e = TechGlossary.entry(t), not is_nil(e) do
+        {t, e}
+      end
+
+    assigns = assign(assigns, :entries, entries)
+
+    ~H"""
+    <section
+      id={@id}
+      class="scroll-mt-8 rounded-xl border border-base-200 bg-base-100/80 p-4 sm:p-5 shadow-sm"
+      aria-labelledby={@heading_id}
+    >
+      <h2 id={@heading_id} class="text-base font-semibold text-base-content">
+        Glossário
+      </h2>
+      <p class="mt-1 text-sm text-base-content/70">
+        Significado dos termos técnicos usados nesta página. Pode saltar para aqui a partir dos links “?” quando existirem.
+      </p>
+      <dl class="mt-4 space-y-3 text-sm">
+        <div
+          :for={{t, e} <- @entries}
+          class="border-t border-base-200 pt-3 first:border-t-0 first:pt-0"
+        >
+          <dt id={TechGlossary.fragment_id(t)} class="font-semibold text-base-content">
+            {e.label}
+          </dt>
+          <dd
+            id={TechGlossary.definition_fragment_id(t)}
+            class="mt-1 text-base-content/80 leading-relaxed"
+          >
+            {e.definition}
+          </dd>
+        </div>
+      </dl>
+    </section>
     """
   end
 
