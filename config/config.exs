@@ -14,6 +14,9 @@
 # General application configuration
 import Config
 
+# Default para `Tec0301Pon.PON.Regra` (POC: sobrescrever com Application.put_env antes do arranque).
+config :tec0301_pon, regra_drain_mailbox: true
+
 config :simulacoes_visuais,
   generators: [timestamp_type: :utc_datetime],
   # Smart Brewery Telemetry Batcher (artigo 07 §2.3). Opções passadas a start_link do SmartBreweryTelemetryBatcher.

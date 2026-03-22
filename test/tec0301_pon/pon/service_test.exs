@@ -55,7 +55,7 @@ defmodule Tec0301Pon.PON.ServiceTest do
     assert_receive ^hit, 500
     Process.sleep(20)
     s = Service.estatisticas_globais()
-    assert s.fatos >= 2
+    assert s.fatos.dispatches >= 2
     assert s.regras.notificacoes >= 2
     assert s.regras.execucoes >= 1
   end
@@ -74,9 +74,11 @@ defmodule Tec0301Pon.PON.ServiceTest do
     Service.reset_estatisticas()
     Process.sleep(20)
     s_after = Service.estatisticas_globais()
-    assert s_after.fatos == 0
+    assert s_after.fatos == %{dispatches: 0, noop_updates: 0}
     assert s_after.regras.notificacoes == 0
     assert s_after.regras.execucoes == 0
+    assert s_after.regras.drained_messages == 0
+    assert s_after.regras.avaliacoes == 0
   end
 
   test "wait_until_queues_empty returns ok when queues are empty" do

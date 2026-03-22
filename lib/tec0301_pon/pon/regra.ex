@@ -11,6 +11,9 @@ defmodule Tec0301Pon.PON.Regra do
   executa a ação só na transição da condição de falsa para verdadeira (evita reentradas
   enquanto a condição permanece verdadeira).
 
+  Opção `drain_mailbox: true` (default) ou `false`, ou `Application.get_env(:tec0301_pon, :regra_drain_mailbox, true)`:
+  quando `false`, não coalesce mensagens na caixa de entrada (útil para benchmarks A/B).
+
   Mensagens suportadas:
   - `{:notificacao, nome_fato, valor}` — drenagem de mensagens consecutivas do mesmo formato
     (e de `{:notificacoes_lote, map}`) antes de uma única avaliação reduz trabalho em *bursts*.
@@ -23,6 +26,8 @@ defmodule Tec0301Pon.PON.Regra do
   """
   def start_link(fatos_monitorados, condicao_fn, acao_fn)
       when is_list(fatos_monitorados) and is_function(condicao_fn, 1) and is_function(acao_fn, 1) do
+    drain_mailbox = drain_mailbox_opt([])
+
     GenServer.start_link(__MODULE__, %{
       fatos: fatos_monitorados,
       memoria: %{},
@@ -32,8 +37,11 @@ defmodule Tec0301Pon.PON.Regra do
       instigation_list: [],
       edge_triggered: false,
       ultima_condicao: false,
+      drain_mailbox: drain_mailbox,
       estatisticas_notificacoes: 0,
-      estatisticas_execucoes: 0
+      estatisticas_execucoes: 0,
+      estatisticas_drenadas: 0,
+      estatisticas_avaliacoes: 0
     })
   end
 
@@ -41,6 +49,7 @@ defmodule Tec0301Pon.PON.Regra do
       when is_list(fatos_monitorados) and is_atom(modulo) and is_list(opts) do
     instigation_list = Keyword.get(opts, :instigation_list, [])
     edge_triggered = Keyword.get(opts, :edge_triggered, false)
+    drain_mailbox = drain_mailbox_opt(opts)
 
     GenServer.start_link(__MODULE__, %{
       fatos: fatos_monitorados,
@@ -51,9 +60,19 @@ defmodule Tec0301Pon.PON.Regra do
       instigation_list: instigation_list,
       edge_triggered: edge_triggered,
       ultima_condicao: false,
+      drain_mailbox: drain_mailbox,
       estatisticas_notificacoes: 0,
-      estatisticas_execucoes: 0
+      estatisticas_execucoes: 0,
+      estatisticas_drenadas: 0,
+      estatisticas_avaliacoes: 0
     })
+  end
+
+  defp drain_mailbox_opt(opts) when is_list(opts) do
+    case Keyword.get(opts, :drain_mailbox) do
+      nil -> Application.get_env(:tec0301_pon, :regra_drain_mailbox, true)
+      v when is_boolean(v) -> v
+    end
   end
 
   @doc """
@@ -66,7 +85,13 @@ defmodule Tec0301Pon.PON.Regra do
   end
 
   @doc """
-  Retorna um map com contagem de notificações recebidas e de execuções (ações disparadas).
+  Retorna um map com contagens para observabilidade e POCs.
+
+  - **`notificacoes`**: unidades de mensagem processadas (`1 + drained` por ciclo quando o drain está ativo).
+  - **`execucoes`**: ações disparadas.
+  - **`drained_messages`**: mensagens extra absorvidas pelo drain do mailbox (soma dos `acc` em `drain_notificacoes`).
+  - **`avaliacoes`**: chamadas a `avaliar_apos_memoria/2` (uma por ciclo de notificação recebida).
+
   Passar o pid da regra (retornado por start_link ou pelo módulo gerado pelo Builder).
   """
   def estatisticas(pid) when is_pid(pid) do
@@ -87,6 +112,9 @@ defmodule Tec0301Pon.PON.Regra do
       |> Map.put_new(:instigation_list, [])
       |> Map.put_new(:estatisticas_notificacoes, 0)
       |> Map.put_new(:estatisticas_execucoes, 0)
+      |> Map.put_new(:drain_mailbox, true)
+      |> Map.put_new(:estatisticas_drenadas, 0)
+      |> Map.put_new(:estatisticas_avaliacoes, 0)
 
     Enum.each(estado.fatos, fn fato ->
       Registry.register(Tec0301Pon.PON.PubSub, fato, [])
@@ -105,8 +133,19 @@ defmodule Tec0301Pon.PON.Regra do
   def handle_info({:notificacao, nome_fato, novo_valor}, estado) do
     base = Map.get(estado, :estatisticas_notificacoes, 0)
     nova_memoria = Map.put(estado.memoria, nome_fato, novo_valor)
-    {nova_memoria, drained} = drain_notificacoes(nova_memoria, estado, 0)
-    estado = Map.put(estado, :estatisticas_notificacoes, base + 1 + drained)
+
+    {nova_memoria, drained} =
+      if Map.get(estado, :drain_mailbox, true) do
+        drain_notificacoes(nova_memoria, estado, 0)
+      else
+        {nova_memoria, 0}
+      end
+
+    estado =
+      estado
+      |> Map.put(:estatisticas_notificacoes, base + 1 + drained)
+      |> Map.update(:estatisticas_drenadas, drained, &(&1 + drained))
+
     avaliar_apos_memoria(estado, nova_memoria)
   end
 
@@ -114,8 +153,19 @@ defmodule Tec0301Pon.PON.Regra do
     base = Map.get(estado, :estatisticas_notificacoes, 0)
     relevante = Map.take(updates, estado.fatos)
     nova_memoria = Map.merge(estado.memoria, relevante)
-    {nova_memoria, drained} = drain_notificacoes(nova_memoria, estado, 0)
-    estado = Map.put(estado, :estatisticas_notificacoes, base + 1 + drained)
+
+    {nova_memoria, drained} =
+      if Map.get(estado, :drain_mailbox, true) do
+        drain_notificacoes(nova_memoria, estado, 0)
+      else
+        {nova_memoria, 0}
+      end
+
+    estado =
+      estado
+      |> Map.put(:estatisticas_notificacoes, base + 1 + drained)
+      |> Map.update(:estatisticas_drenadas, drained, &(&1 + drained))
+
     avaliar_apos_memoria(estado, nova_memoria)
   end
 
@@ -125,7 +175,9 @@ defmodule Tec0301Pon.PON.Regra do
   def handle_call(:estatisticas, _from, estado) do
     result = %{
       notificacoes: Map.get(estado, :estatisticas_notificacoes, 0),
-      execucoes: Map.get(estado, :estatisticas_execucoes, 0)
+      execucoes: Map.get(estado, :estatisticas_execucoes, 0),
+      drained_messages: Map.get(estado, :estatisticas_drenadas, 0),
+      avaliacoes: Map.get(estado, :estatisticas_avaliacoes, 0)
     }
 
     {:reply, result, estado}
@@ -137,6 +189,8 @@ defmodule Tec0301Pon.PON.Regra do
       estado
       |> Map.put(:estatisticas_notificacoes, 0)
       |> Map.put(:estatisticas_execucoes, 0)
+      |> Map.put(:estatisticas_drenadas, 0)
+      |> Map.put(:estatisticas_avaliacoes, 0)
       |> Map.put(:ultima_condicao, false)
 
     {:noreply, novo_estado}
@@ -157,6 +211,7 @@ defmodule Tec0301Pon.PON.Regra do
   end
 
   defp avaliar_apos_memoria(estado, nova_memoria) do
+    estado = Map.update(estado, :estatisticas_avaliacoes, 1, &(&1 + 1))
     disparado = avaliar_condicao(estado, nova_memoria)
     ultima = Map.get(estado, :ultima_condicao, false)
 

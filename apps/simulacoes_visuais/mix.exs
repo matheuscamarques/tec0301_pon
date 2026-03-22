@@ -74,7 +74,8 @@ defmodule SimulacoesVisuais.MixProject do
       {:axon, "~> 0.8"},
       {:scholar, "~> 0.4"},
       {:nimble_csv, "~> 1.2"},
-      {:tec0301_pon, path: "../.."}
+      {:tec0301_pon, path: "../.."},
+      {:benchee, "~> 1.3", only: :dev}
     ]
   end
 
@@ -97,6 +98,7 @@ defmodule SimulacoesVisuais.MixProject do
       "import.ml.predictions": ["simulacoes_visuais.ml_import_predictions"],
       "train.ml": ["simulacoes_visuais.ml_train"],
       "retention.tsdb": ["simulacoes_visuais.retention"],
+      "bench.storm": ["run --no-start ../../bench/poc_storm_bench.exs"],
       "assets.setup": [
         "tailwind.install --if-missing",
         "esbuild.install --if-missing",

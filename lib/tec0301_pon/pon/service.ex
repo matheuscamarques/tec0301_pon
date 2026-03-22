@@ -35,7 +35,9 @@ defmodule Tec0301Pon.PON.Service do
 
   @doc """
   Retorna a soma das estatísticas de todos os fatos e regras registrados.
-  Fatos: contagem de atualizações. Regras: map com notificacoes e execucoes.
+
+  - **`fatos`**: `%{dispatches: n, noop_updates: m}` (soma por fato).
+  - **`regras`**: `%{notificacoes, execucoes, drained_messages, avaliacoes}`.
   """
   def estatisticas_globais do
     GenServer.call(__MODULE__, :estatisticas_globais)
@@ -87,19 +89,30 @@ defmodule Tec0301Pon.PON.Service do
   @impl true
   def handle_call(:estatisticas_globais, _from, estado) do
     fatos_count =
-      Enum.reduce(estado.fatos, 0, fn {_nome, key}, acc ->
-        acc + Tec0301Pon.PON.Fato.estatisticas(key)
+      Enum.reduce(estado.fatos, %{dispatches: 0, noop_updates: 0}, fn {_nome, key}, acc ->
+        s = Tec0301Pon.PON.Fato.estatisticas(key)
+
+        %{
+          dispatches: acc.dispatches + s.dispatches,
+          noop_updates: acc.noop_updates + s.noop_updates
+        }
       end)
 
     regras_count =
-      Enum.reduce(estado.regras, %{notificacoes: 0, execucoes: 0}, fn {_id, pid}, acc ->
-        s = Tec0301Pon.PON.Regra.estatisticas(pid)
+      Enum.reduce(
+        estado.regras,
+        %{notificacoes: 0, execucoes: 0, drained_messages: 0, avaliacoes: 0},
+        fn {_id, pid}, acc ->
+          s = Tec0301Pon.PON.Regra.estatisticas(pid)
 
-        %{
-          notificacoes: acc.notificacoes + s.notificacoes,
-          execucoes: acc.execucoes + s.execucoes
-        }
-      end)
+          %{
+            notificacoes: acc.notificacoes + s.notificacoes,
+            execucoes: acc.execucoes + s.execucoes,
+            drained_messages: acc.drained_messages + s.drained_messages,
+            avaliacoes: acc.avaliacoes + s.avaliacoes
+          }
+        end
+      )
 
     result = %{
       fatos: fatos_count,

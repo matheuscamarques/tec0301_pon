@@ -192,6 +192,8 @@ defmodule Tec0301Pon.PON.RegraTest do
     s2 = Regra.estatisticas(regra_pid)
     assert s2.notificacoes == 0
     assert s2.execucoes == 0
+    assert s2.drained_messages == 0
+    assert s2.avaliacoes == 0
   end
 
   test "drains notificacoes_lote coalesced after a single notificacao", %{f1: f1, f2: f2} do
@@ -331,5 +333,57 @@ defmodule Tec0301Pon.PON.RegraTest do
     Process.sleep(15)
     Fato.atualizar(:regra_edge_f, true)
     assert_receive :edge, 400
+  end
+
+  test "mailbox drain coalesces burst into one avaliacao when drain_mailbox true", %{f1: f1} do
+    Application.put_env(:tec0301_pon, :regra_drain_mailbox, true)
+
+    {:ok, pid} =
+      Regra.start_link(
+        [f1],
+        fn _ -> false end,
+        fn _ -> :ok end
+      )
+
+    on_exit(fn ->
+      Application.put_env(:tec0301_pon, :regra_drain_mailbox, true)
+      Process.exit(pid, :kill)
+    end)
+
+    send(pid, {:notificacao, f1, 1})
+    send(pid, {:notificacao, f1, 2})
+    send(pid, {:notificacao, f1, 3})
+    Process.sleep(80)
+
+    s = Regra.estatisticas(pid)
+    assert s.avaliacoes == 1
+    assert s.drained_messages == 2
+    assert s.notificacoes == 3
+  end
+
+  test "mailbox drain off processes each notification separately", %{f1: f1} do
+    Application.put_env(:tec0301_pon, :regra_drain_mailbox, false)
+
+    {:ok, pid} =
+      Regra.start_link(
+        [f1],
+        fn _ -> false end,
+        fn _ -> :ok end
+      )
+
+    on_exit(fn ->
+      Application.put_env(:tec0301_pon, :regra_drain_mailbox, true)
+      Process.exit(pid, :kill)
+    end)
+
+    send(pid, {:notificacao, f1, 1})
+    send(pid, {:notificacao, f1, 2})
+    send(pid, {:notificacao, f1, 3})
+    Process.sleep(80)
+
+    s = Regra.estatisticas(pid)
+    assert s.avaliacoes == 3
+    assert s.drained_messages == 0
+    assert s.notificacoes == 3
   end
 end

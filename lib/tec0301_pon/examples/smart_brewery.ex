@@ -109,6 +109,21 @@ defmodule Tec0301Pon.Examples.SmartBrewery do
 
   @fatos_names Enum.map(@fatos_iniciais, fn {nome, _valor} -> nome end)
 
+  @regras_modulos [
+    Tec0301Pon.Examples.SmartBrewery.Regras.RegraOtimizacaoFiltracao,
+    Tec0301Pon.Examples.SmartBrewery.Regras.RegraIntertravamentoEnvase,
+    Tec0301Pon.Examples.SmartBrewery.Regras.RegraSmartGridLoadBalancing,
+    Tec0301Pon.Examples.SmartBrewery.Regras.RegraProtecaoMoinho,
+    Tec0301Pon.Examples.SmartBrewery.Regras.RegraControleMostura,
+    Tec0301Pon.Examples.SmartBrewery.Regras.RegraSegurancaCaldeira,
+    Tec0301Pon.Examples.SmartBrewery.Regras.RegraOtimizacaoTrocador,
+    Tec0301Pon.Examples.SmartBrewery.Regras.RegraLoadBalancingFermentadorB,
+    Tec0301Pon.Examples.SmartBrewery.Regras.RegraIntertravamentoMosturaFiltro,
+    Tec0301Pon.Examples.SmartBrewery.Regras.RegraIntertravamentoFervuraTrocador,
+    Tec0301Pon.Examples.SmartBrewery.Regras.RegraGestaoBateriaAMR,
+    Tec0301Pon.Examples.SmartBrewery.Regras.RegraResilienciaRede
+  ]
+
   @doc """
   Retorna a lista de átomos que representam os 57 fatos do Gêmeo Digital.
 
@@ -118,6 +133,18 @@ defmodule Tec0301Pon.Examples.SmartBrewery do
   def fatos_names, do: @fatos_names
 
   @doc """
+  Os 12 módulos `defrule` da Smart Brewery (mesma ordem que `start_link/0`).
+  """
+  def regras_modulos, do: @regras_modulos
+
+  @doc """
+  PIDs das 12 regras após `start_link/0` (para agregação em `Tec0301Pon.PON.StormPoc`).
+  """
+  def regra_pids do
+    Application.get_env(:tec0301_pon, :smart_brewery_regra_pids, [])
+  end
+
+  @doc """
   Inicia a malha PON da Smart Brewery: 57 fatos e 12 regras (Artigo 05 e 11).
   """
   def start_link do
@@ -125,18 +152,13 @@ defmodule Tec0301Pon.Examples.SmartBrewery do
       Fato.start_link(nome, valor)
     end
 
-    Tec0301Pon.Examples.SmartBrewery.Regras.RegraOtimizacaoFiltracao.start_link()
-    Tec0301Pon.Examples.SmartBrewery.Regras.RegraIntertravamentoEnvase.start_link()
-    Tec0301Pon.Examples.SmartBrewery.Regras.RegraSmartGridLoadBalancing.start_link()
-    Tec0301Pon.Examples.SmartBrewery.Regras.RegraProtecaoMoinho.start_link()
-    Tec0301Pon.Examples.SmartBrewery.Regras.RegraControleMostura.start_link()
-    Tec0301Pon.Examples.SmartBrewery.Regras.RegraSegurancaCaldeira.start_link()
-    Tec0301Pon.Examples.SmartBrewery.Regras.RegraOtimizacaoTrocador.start_link()
-    Tec0301Pon.Examples.SmartBrewery.Regras.RegraLoadBalancingFermentadorB.start_link()
-    Tec0301Pon.Examples.SmartBrewery.Regras.RegraIntertravamentoMosturaFiltro.start_link()
-    Tec0301Pon.Examples.SmartBrewery.Regras.RegraIntertravamentoFervuraTrocador.start_link()
-    Tec0301Pon.Examples.SmartBrewery.Regras.RegraGestaoBateriaAMR.start_link()
-    Tec0301Pon.Examples.SmartBrewery.Regras.RegraResilienciaRede.start_link()
+    rule_pids =
+      Enum.map(@regras_modulos, fn mod ->
+        {:ok, pid} = mod.start_link()
+        pid
+      end)
+
+    Application.put_env(:tec0301_pon, :smart_brewery_regra_pids, rule_pids)
 
     {:ok, self()}
   end

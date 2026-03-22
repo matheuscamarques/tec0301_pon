@@ -24,9 +24,15 @@ A telemetria e o Monte Carlo **não dependem** do navegador. Para popular o Time
 SIMULACOES_TSDB_ENABLED=true AUTO_START_MONTE_CARLO=true mix phx.server
 ```
 
-4. Exportar: `mix export.ml --out /tmp/ml_export --since-hours 168`
+4. Exportar: `mix export.ml --out /tmp/ml_export --since-hours 168` — flags úteis: `--no-cagg`, `--no-cagg-1h-1day` (ver `mix help simulacoes_visuais.export_ml`).
 
-Detalhes, tabela de variáveis e script auxiliar: seção **Simulação sem frontend** em [`docs/ml-smart-brewery-data.md`](../../docs/ml-smart-brewery-data.md). Atalho na raiz do repo: `./scripts/run_simulation_headless_ml.sh`.
+**Atalho** na raiz do repositório: `./scripts/run_simulation_headless_ml.sh` (equivalente prático às variáveis acima).
+
+**Variáveis úteis em dev:** `MONTE_CARLO_INTERVAL_MS=500` para mais pontos por unidade de tempo (mínimo ~200 ms; ver `config/dev.exs`); `LOGGER_LEVEL=warning` para menos ruído; para correr em background, algo como `nohup env SIMULACOES_TSDB_ENABLED=true AUTO_START_MONTE_CARLO=true mix phx.server > sim.log 2>&1 &` a partir desta pasta.
+
+**Ficheiros típicos do export** (entre outros): `telemetry_events.csv` (bruto, inclui `value_str` / `value_int`), `telemetry_events_1min.csv`, `telemetry_events_1h.csv`, `telemetry_events_1day.csv`, `oee_snapshots.csv`, `anomaly_events.csv`, `rule_events.csv`, CSVs de dimensões (`dim_*`).
+
+O script `mix run examples/smart_brewery_simulacao.exs` na raiz do monorepo **não** alimenta estes dados — só esta app com TSDB; ver também **Quem persiste no TSDB** abaixo.
 
 ## `mix verify.bi` vs. volume no TSDB
 

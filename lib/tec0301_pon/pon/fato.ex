@@ -5,10 +5,10 @@ defmodule Tec0301Pon.PON.Fato do
 
   ## Comportamento
 
-  - **`atualizar/2`**: se o novo valor for **igual** ao atual (`===`), não incrementa
-    `estatisticas` e **não** dispara `Registry.dispatch` (reduz message storm).
-  - **`estatisticas`**: conta apenas **dispatches** efetivos (transições de valor que
-    notificaram inscritos), não tentativas redundantes.
+  - **`atualizar/2`**: se o novo valor for **igual** ao atual (`===`), incrementa
+    `noop_updates` em `estatisticas/1` e **não** dispara `Registry.dispatch` (reduz message storm).
+  - **`estatisticas/1`**: retorna `%{dispatches: n, noop_updates: m}` — dispatches efetivos
+    e tentativas ignoradas por valor idêntico (`===`).
   - **`obter/1`**: leitura via ETS quando disponível; fallback a `GenServer.call` se a
     entrada ainda não existir (ex.: corrida no arranque).
   - **ETS**: tabela nomeada com `read_concurrency` e `write_concurrency` (artigo 20) para
@@ -82,8 +82,10 @@ defmodule Tec0301Pon.PON.Fato do
   end
 
   @doc """
-  Retorna o número de **notificações disparadas** (dispatches ao Registry) desde o início
-  ou último reset — não inclui atualizações silenciosas nem `atualizar` sem mudança de valor.
+  Retorna `%{dispatches: n, noop_updates: m}` desde o início ou último reset.
+
+  - **`dispatches`**: notificações enviadas ao Registry (valor mudou).
+  - **`noop_updates`**: `atualizar/2` com valor `===` ao atual (dedup na fonte).
   """
   def estatisticas(nome_do_fato) when is_atom(nome_do_fato) do
     GenServer.call(nome_do_fato, :estatisticas)
@@ -98,7 +100,11 @@ defmodule Tec0301Pon.PON.Fato do
 
   @impl true
   def init(estado) do
-    estado = Map.put_new(estado, :estatisticas, 0)
+    estado =
+      estado
+      |> Map.put_new(:estatisticas, 0)
+      |> Map.put_new(:noop_updates, 0)
+
     ets_put(estado.nome, estado.valor)
     {:ok, estado}
   end
@@ -109,8 +115,12 @@ defmodule Tec0301Pon.PON.Fato do
   end
 
   def handle_call(:estatisticas, _from, estado) do
-    count = Map.get(estado, :estatisticas, 0)
-    {:reply, count, estado}
+    reply = %{
+      dispatches: Map.get(estado, :estatisticas, 0),
+      noop_updates: Map.get(estado, :noop_updates, 0)
+    }
+
+    {:reply, reply, estado}
   end
 
   def handle_call({:atualizar_sem_dispatch, novo_valor}, _from, estado) do
@@ -126,7 +136,8 @@ defmodule Tec0301Pon.PON.Fato do
   @impl true
   def handle_cast({:atualizar, novo_valor}, estado) do
     if valor_igual?(estado.valor, novo_valor) do
-      {:noreply, estado}
+      novo_estado = Map.update(estado, :noop_updates, 1, &(&1 + 1))
+      {:noreply, novo_estado}
     else
       novo_estado =
         estado
@@ -144,7 +155,7 @@ defmodule Tec0301Pon.PON.Fato do
   end
 
   def handle_cast(:reset_estatisticas, estado) do
-    novo_estado = %{estado | estatisticas: 0}
+    novo_estado = %{estado | estatisticas: 0, noop_updates: 0}
     {:noreply, novo_estado}
   end
 

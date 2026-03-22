@@ -96,15 +96,15 @@ defmodule Tec0301Pon.PON.FatoTest do
     name = :"fato_stats_#{System.unique_integer([:positive])}"
     {:ok, pid} = Fato.start_link(name, 0)
     on_exit(fn -> Process.exit(pid, :normal) end)
-    assert Fato.estatisticas(name) == 0
+    assert Fato.estatisticas(name) == %{dispatches: 0, noop_updates: 0}
     Fato.atualizar(name, 1)
     Fato.atualizar(name, 2)
     Fato.atualizar(name, 3)
     Process.sleep(20)
-    assert Fato.estatisticas(name) == 3
+    assert Fato.estatisticas(name) == %{dispatches: 3, noop_updates: 0}
     Fato.reset_estatisticas(name)
     Process.sleep(10)
-    assert Fato.estatisticas(name) == 0
+    assert Fato.estatisticas(name) == %{dispatches: 0, noop_updates: 0}
   end
 
   test "atualizar with unchanged value does not increment estatisticas or dispatch" do
@@ -115,7 +115,7 @@ defmodule Tec0301Pon.PON.FatoTest do
     Fato.atualizar(name, 5)
     Fato.atualizar(name, 5)
     Process.sleep(20)
-    assert Fato.estatisticas(name) == 0
+    assert Fato.estatisticas(name) == %{dispatches: 0, noop_updates: 2}
     assert Fato.obter(name) == 5
     refute_receive {:notificacao, _, _}, 20
   end

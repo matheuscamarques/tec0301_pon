@@ -85,16 +85,18 @@ defmodule Tec0301Pon.PON.IntegrationTest do
     assert_receive :r2_fired, 500
 
     s = Service.estatisticas_globais()
-    assert s.fatos >= 0
+    assert s.fatos.dispatches >= 0
     assert s.regras.notificacoes >= 0
     assert s.regras.execucoes >= 2
 
     Service.reset_estatisticas()
     Process.sleep(20)
     s2 = Service.estatisticas_globais()
-    assert s2.fatos == 0
+    assert s2.fatos == %{dispatches: 0, noop_updates: 0}
     assert s2.regras.notificacoes == 0
     assert s2.regras.execucoes == 0
+    assert s2.regras.drained_messages == 0
+    assert s2.regras.avaliacoes == 0
   end
 
   test "graph invariants hold across pseudo-random sequence of updates" do

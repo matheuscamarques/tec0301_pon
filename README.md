@@ -5,14 +5,41 @@ Matheus de Camargo Marques - matheuscamarques@gmail.com
 
 Prova de conceito do **Paradigma Orientado a Notificações (PON)** em Elixir/BEAM: núcleo com Fatos e Regras (GenServer + Registry), Ports & Adapters e DSL via metaprogramação.
 
+### Repositório (GitHub)
+
+O código-fonte público está em **[github.com/matheuscamarques/tec0301_pon](https://github.com/matheuscamarques/tec0301_pon)**. Detalhes e comando de clone: [`docs/repositorio-github.md`](docs/repositorio-github.md).
+
 ### Documentação do projeto
 
 A documentação de design (artigos de arquitetura, passo a passo do motor PON, Estufa, DSL, Hot Swap) e os recursos bibliográficos (teses, dissertações, textos sobre PON) são mantidos em repositório sigiloso e não estão versionados aqui.
 
 | Onde | O que |
 |------|--------|
+| **GitHub** | Repositório oficial: [matheuscamarques/tec0301_pon](https://github.com/matheuscamarques/tec0301_pon) — ver também [`docs/repositorio-github.md`](docs/repositorio-github.md). |
 | **Código** | `@moduledoc` e `@doc` nos módulos; gere a doc com `mix docs`. |
-| **Comparação NOP** | [docs/comparison_pon_vs_nop_kernel.md](docs/comparison_pon_vs_nop_kernel.md) e recursos incorporados. |
+
+**Comparação com o kernel NOP (outra implementação em Elixir):** neste repositório um **Fato** é um nome + valor e as atualizações propagam via `Registry.dispatch` por tópico; no NOP um **FBE** tem vários atributos e **links** explícitos para premissas. Aqui uma **Regra** agrega memória local, `avaliar` e `executar`; no NOP a cadeia é **Premise → Condition → Rule** com instigações. O barramento aqui é **Registry** (desacoplado por nome); no NOP são **cast** entre PIDs no grafo. Código de referência: `lib/tec0301_pon/pon/fato.ex`, `regra.ex`, `builder.ex`.
+
+**Série dev.to (roteiro editorial, 12 partes em português)** — perfil: [dev.to/matheuscamarques](https://dev.to/matheuscamarques); roteiro e URLs dos posts: [`docs/devto_serie_pon_smart_brewery.md`](docs/devto_serie_pon_smart_brewery.md).
+
+| Parte | Título |
+|------:|--------|
+| 1 | Paradigma Orientado a Notificações (PON) em Elixir: por que a BEAM é um bom lugar para regras reativas |
+| 2 | Do papel ao código: mapeando Fatos, Regras e Premissas para processos OTP |
+| 3 | DSL com metaprogramação: `defrule` e `defpremissa` para escrever menos boilerplate PON |
+| 4 | Hexagonal + PON: Ports & Adapters para não acoplar o motor ao mundo real |
+| 5 | Smart Brewery: um gêmeo digital cervejeiro como laboratório para o PON |
+| 6 | Phoenix LiveView e tempo real: painel operacional sobre um motor de regras |
+| 7 | Da simulação ao armazém: telemetria, Broadway/GenStage e TimescaleDB |
+| 8 | BI sem mistério: dimensões, fatos e consumo dos dados (ex.: Power BI) |
+| 9 | ML no gêmeo digital: exportar dados, treinar pilotos e importar predições de volta ao app |
+| 10 | Quando as notificações explodem: message storm, deduplicação e padrões de back-pressure no PON |
+| 11 | Profiling em produção dev: CPU, memória e o que mudou depois das otimizações |
+| 12 | Retrospectiva: o que aprendi construindo um motor de regras reativo em Elixir |
+
+Existe variante **enxuta em 6 posts** (fundindo pares da lista acima). Títulos em inglês seguem a mesma ordem (ex.: *Notification-Oriented Paradigm (PON) in Elixir…* na parte 1).
+
+**Tags sugeridas no dev.to:** `elixir`, `phoenix`, `liveview`, `otp`, `machinelearning`, `timescaledb`; opcionais: `iot`, `industry40`, `architecture`, `functional`.
 
 Use o código e a documentação gerada com `mix docs` como referência principal para entender e estender o PON.
 
